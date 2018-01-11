@@ -4,77 +4,76 @@ from scipy.optimize import linprog
 
 class MinimaxQPlayer:
 
-    def __init__(self, numStates, numActionsA, numActionsB, decay, expl, gamma):
-        self.decay = decay
-        self.expl = expl
-        self.gamma = gamma
-        self.alpha = 1
-        self.V = np.ones(numStates)
-        self.Q = np.ones((numStates, numActionsA, numActionsB))
-        self.pi = np.ones((numStates, numActionsA)) / numActionsA
-        self.numStates = numStates
-        self.numActionsA = numActionsA
-        self.numActionsB = numActionsB
-        self.learning = True
+    def __init__(self, num_states, num_actions_a, num_actions_b, decay, eps, gamma):
+        self.decay = decay  # the default value for decay is 0.9 according to the paper
+        self.eps = eps    # eps is the exploration
+        self.gamma = gamma  # gamma the dicounted factor
+        self.alpha = 1     #  update steps
+        self.V = np.ones(num_states)   # value function
+        self.Q = np.ones((num_states, num_actions_a, num_actions_b))  # minimax Q function
+        self.pi = np.ones((num_states, num_actions_a)) / num_actions_a  # player 1's policy
+        self.num_states = num_states  #TODO: check soccer to state 
+        self.num_actions_a = num_actions_a  # 5 for soccer
+        self.num_actions_b = num_actions_b  # 5 for soccer
+        self.learning = True  # is this in the learning stage
 
-    def chooseAction(self, state, restrict=None):
-        if self.learning and np.random.rand() < self.expl:
-            action = np.random.randint(self.numActionsA)
+    def choose_action(self, state, num_action):
+        if self.learning and np.random.rand() < self.eps:  # e-greedy
+            action = np.random.randint(self.num_actions_a)
         else:
-            action = self.weightedActionChoice(state)
+            action = self.weighted_action_choice(state, num_action)  # check actions
         return action
 
-    def weightedActionChoice(self, state):
-        rand = np.random.rand()
-        cumSumProb = np.cumsum(self.pi[state])
-        action = 0
-        while rand > cumSumProb[action]:
-            action += 1
+    def weighted_action_choice(self, state, num_action):
+        action = np.random.choice(num_action, p=np.squeeze(self.pi[state]))
         return action
 
-    def getReward(self, initialState, finalState, actions, reward, restrictActions=None):
-        if not self.learning:
+    def bellman_update(self, state, next_state, actions, reward):
+        if not self.learning:  # return without any reward. What does bellman_update mean?
             return
-        actionA, actionB = actions
-        self.Q[initialState, actionA, actionB] = (1 - self.alpha) * self.Q[initialState, actionA, actionB] + \
-            self.alpha * (reward + self.gamma * self.V[finalState])
-        self.V[initialState] = self.updatePolicy(initialState)  # EQUIVALENT TO : min(np.sum(self.Q[initialState].T * self.pi[initialState], axis=1))
-        self.alpha *= self.decay
+        action_a, action_b = actions
+        self.Q[state, action_a, action_b] = (1 - self.alpha) * self.Q[state, action_a, action_b] + \
+            self.alpha * (reward + self.gamma * self.V[next_state])
+        # harry: this is not elegant. better update V and pi in two functions
+        self.V[state] = self.update_policy(state)  # EQUIVALENT TO : min(np.sum(self.Q[state].T * self.pi[state], axis=1))
+        self.alpha *= self.decay   # this can be something to tune
 
-    def updatePolicy(self, state, retry=False):
-        c = np.zeros(self.numActionsA + 1)
+    def update_policy(self, state, retry=False):
+        #  x is the policy we want to optimize.
+        c = np.zeros(self.num_actions_a + 1)
         c[0] = -1
-        A_ub = np.ones((self.numActionsB, self.numActionsA + 1))
+        A_ub = np.ones((self.num_actions_b, self.num_actions_a + 1))
         A_ub[:, 1:] = -self.Q[state].T
-        b_ub = np.zeros(self.numActionsB)
-        A_eq = np.ones((1, self.numActionsA + 1))
+        b_ub = np.zeros(self.num_actions_b)
+        A_eq = np.ones((1, self.num_actions_a + 1))
         A_eq[0, 0] = 0
         b_eq = [1]
-        bounds = ((None, None),) + ((0, 1),) * self.numActionsA
+        bounds = ((None, None),) + ((0, 1),) * self.num_actions_a
 
         res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
 
         if res.success:
             self.pi[state] = res.x[1:]
         elif not retry:
-            return self.updatePolicy(state, retry=True)
+            return self.update_policy(state, retry=True)
         else:
             print("Alert : %s" % res.message)
             return self.V[state]
 
         return res.x[0]
 
-    def policyForState(self, state):
-        for i in range(self.numActionsA):
+    def policy_for_state(self, state):
+        for i in range(self.num_actions_a):
             print("Actions %d : %f" % (i, self.pi[state, i]))
 
 
 if __name__ == '__main__':
 
-    def testUpdatePolicy():
-        m = minimaxQPlayer(1, 2, 2, 1e-4, 0.2, 0.9)
+    def testupdate_policy():
+        m = MinimaxQPlayer(1, 2, 2, 1e-4, 0.2, 0.9)
         m.Q[0] = [[0, 1], [1, 0.5]]
-        m.updatePolicy(0)
+        print(m.pi)
+        m.update_policy(0)
         print(m.pi)
 
-    testUpdatePolicy()
+    testupdate_policy()
