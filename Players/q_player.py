@@ -3,39 +3,39 @@ import numpy as np
 
 class QPlayer:
 
-    def __init__(self, numStates, numActions, decay, expl, gamma):
+    def __init__(self, num_states, num_actions, decay, eps, gamma):
         self.decay = decay
-        self.expl = expl
+        self.eps = eps
         self.gamma = gamma
         self.alpha = 1
-        self.V = np.ones(numStates)
-        self.Q = np.ones((numStates, numActions))
-        self.pi = np.ones((numStates, numActions)) / numActions
-        self.numStates = numStates
-        self.numActions = numActions
+        self.V = np.ones(num_states)
+        self.Q = np.ones((num_states, num_actions))
+        self.pi = np.ones((num_states, num_actions)) / num_actions
+        self.num_states = num_states
+        self.num_actions = num_actions
         self.learning = True
 
-    def chooseAction(self, state, restrict=None):
-        if self.learning and np.random.rand() < self.expl:
-            action = np.random.randint(self.numActions)
+    def choose_action(self, state):
+        if self.learning and np.random.rand() < self.eps:
+            action = np.random.randint(self.num_actions)
         else:
             action = np.argmax(self.Q[state])
         return action
 
-    def getReward(self, initialState, finalState, actions, reward, restrictActions=None):
+    def bellman_update(self, state, next_state, actions, reward):
         if not self.learning:
             return
-        actionA, actionB = actions
-        self.Q[initialState, actionA] = (1 - self.alpha) * self.Q[initialState, actionA] + \
-            self.alpha * (reward + self.gamma * self.V[finalState])
-        bestAction = np.argmax(self.Q[initialState])
-        self.pi[initialState] = np.zeros(self.numActions)
-        self.pi[initialState, bestAction] = 1
-        self.V[initialState] = self.Q[initialState, bestAction]
+        action_a, action_b = actions
+        self.Q[state, action_a] = (1 - self.alpha) * self.Q[state, action_a] + \
+            self.alpha * (reward + self.gamma * self.V[next_state])
+        best_action = np.argmax(self.Q[state])
+        self.pi[state] = np.zeros(self.num_actions)
+        self.pi[state, best_action] = 1
+        self.V[state] = self.Q[state, best_action]
         self.alpha *= self.decay
 
-    def policyForState(self, state):
-        for i in range(self.numActions):
+    def policy_for_state(self, state):
+        for i in range(self.num_actions):
             print("Actions %d : %f" % (i, self.pi[state, i]))
 
 
