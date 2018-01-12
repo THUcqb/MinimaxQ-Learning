@@ -3,12 +3,12 @@ import numpy as np
 
 class RandomPlayer:
 
-    def __init__(self, numActions):
-        self.numActions = numActions
+    def __init__(self, num_actions):
+        self.num_actions = num_actions
 
-    def chooseAction(self, state, maxAction=None):
-        maxAction = self.numActions if maxAction is None else maxAction
-        return np.random.randint(maxAction)
+    def choose_action(self, state, max_action=None):
+        max_action = self.num_actions if max_action is None else max_action
+        return np.random.randint(max_action)
 
-    def getReward(self, initialState, finalState, actions, reward, maxActions=None):
+    def bellman_update(self, state, next_state, actions, reward, max_actions=None):
         pass
