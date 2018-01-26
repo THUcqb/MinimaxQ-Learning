@@ -42,18 +42,25 @@ class Soccer:
         self.terminal = False
 
     def step(self, action_a, action_b):
-        status = np.NaN
-        if self.step_count >= 10:
+        status = 0
+        no_player = -1
+        if self.step_count >= 100:     # run too many steps? give it a draw
             self.terminal = True
-            return status, self.terminal
+            status = -2
+            return status, no_player, self.terminal
         first = self.choose_player()
         second = 1 - first
         action_in_play = [action_a, action_b]
-        m1 = self.move(first, action_in_play[first])
-        if m1 == 1:
-            print("Goal!! Need to reset.")
-            return m1, first
-        return self.move(second, action_in_play[1 - first]), second
+        status = self.move(first, action_in_play[first])    # init win? return goal, init, terminal
+        if status == 1:
+            self.terminal = True
+            return status, first, self.terminal
+
+        status = self.move(second, action_in_play[1 - first])  # second win? return goal, init, terminal
+        if status == 1:
+            self.terminal == True
+            return status, second, self.terminal
+        return 0, no_player, self.terminal    # the game is going on.
 
     def move(self, player, action_move):
         opponent = 1 - player

@@ -17,11 +17,11 @@ class MinimaxQPlayer:
         self.num_actions_b = num_actions_b  # 5 for soccer
         self.learning = True  # is this in the learning stage
 
-    def choose_action(self, state, num_action):
+    def choose_action(self, state):
         if self.learning and np.random.rand() < self.eps:  # e-greedy
             action = np.random.randint(self.num_actions_a)
         else:
-            action = self.weighted_action_choice(state, num_action)  # check actions
+            action = self.weighted_action_choice(state, self.num_actions_a)  # check actions
         return action
 
     def weighted_action_choice(self, state, num_action):
