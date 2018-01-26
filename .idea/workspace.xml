@@ -2,14 +2,9 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="53be30e0-472d-4ebb-b6c8-692feb7f1507" name="Default" comment="">
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/Games/deep_soccer.py" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/Games/oshi_zumo.py" afterPath="" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/Games/rock_paper_scissors.py" afterPath="" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Games/__init__.py" afterPath="$PROJECT_DIR$/Games/__init__.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Games/soccer.py" afterPath="$PROJECT_DIR$/Games/soccer.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Players/__init__.py" afterPath="$PROJECT_DIR$/Players/__init__.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Players/minimaxq_player.py" afterPath="$PROJECT_DIR$/Players/minimaxq_player.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/tests.py" afterPath="$PROJECT_DIR$/tests.py" />
+      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Games/-1.png" afterPath="$PROJECT_DIR$/Games/-1.png" />
+      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
+      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Games/deep_soccer.py" afterPath="$PROJECT_DIR$/Games/deep_soccer.py" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="TRACKING_ENABLED" value="true" />
@@ -23,8 +18,8 @@
       <file leaf-file-name="soccer.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/Games/soccer.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="120">
-              <caret line="5" column="11" lean-forward="false" selection-start-line="0" selection-start-column="0" selection-end-line="134" selection-end-column="0" />
+            <state relative-caret-position="-1271">
+              <caret line="13" column="23" lean-forward="false" selection-start-line="13" selection-start-column="23" selection-end-line="13" selection-end-column="23" />
               <folding />
             </state>
           </provider>
@@ -33,8 +28,8 @@
       <file leaf-file-name="deep_soccer.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/Games/deep_soccer.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="213">
-              <caret line="80" column="25" lean-forward="false" selection-start-line="80" selection-start-column="20" selection-end-line="80" selection-end-column="25" />
+            <state relative-caret-position="2102">
+              <caret line="115" column="42" lean-forward="true" selection-start-line="115" selection-start-column="42" selection-end-line="115" selection-end-column="42" />
               <folding>
                 <element signature="e#0#18#0" expanded="true" />
               </folding>
@@ -90,8 +85,6 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>numStates</find>
-      <find>alpha</find>
       <find>weightedActionChoice</find>
       <find>pi</find>
       <find>actionB</find>
@@ -120,6 +113,8 @@
       <find>terminal</find>
       <find>sporter</find>
       <find>state</find>
+      <find>self.step_count</find>
+      <find>agents</find>
     </findStrings>
     <replaceStrings>
       <replace>self.height</replace>
@@ -167,7 +162,7 @@
     </option>
   </component>
   <component name="ProjectFrameBounds">
-    <option name="x" value="53" />
+    <option name="x" value="70" />
     <option name="y" value="23" />
     <option name="width" value="1680" />
     <option name="height" value="924" />
@@ -230,6 +225,9 @@
   <component name="ShelveChangesManager" show_recycled="false">
     <option name="remove_strategy" value="false" />
   </component>
+  <component name="SvnConfiguration">
+    <configuration />
+  </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <changelist id="53be30e0-472d-4ebb-b6c8-692feb7f1507" name="Default" comment="" />
@@ -241,7 +239,7 @@
     <servers />
   </component>
   <component name="ToolWindowManager">
-    <frame x="53" y="23" width="1680" height="924" extended-state="0" />
+    <frame x="70" y="23" width="1680" height="924" extended-state="0" />
     <editor active="true" />
     <layout>
       <window_info id="Project" active="false" anchor="left" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.1279762" sideWeight="0.5" order="1" side_tool="false" content_ui="combo" />
@@ -315,14 +313,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/Games/soccer.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="120">
-          <caret line="5" column="11" lean-forward="false" selection-start-line="0" selection-start-column="0" selection-end-line="134" selection-end-column="0" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/Players/minimaxq_player.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="348">
@@ -333,10 +323,18 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/Games/soccer.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-1271">
+          <caret line="13" column="23" lean-forward="false" selection-start-line="13" selection-start-column="23" selection-end-line="13" selection-end-column="23" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/Games/deep_soccer.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="213">
-          <caret line="80" column="25" lean-forward="false" selection-start-line="80" selection-start-column="20" selection-end-line="80" selection-end-column="25" />
+        <state relative-caret-position="2102">
+          <caret line="115" column="42" lean-forward="true" selection-start-line="115" selection-start-column="42" selection-end-line="115" selection-end-column="42" />
           <folding>
             <element signature="e#0#18#0" expanded="true" />
           </folding>

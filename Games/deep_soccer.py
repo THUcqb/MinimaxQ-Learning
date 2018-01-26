@@ -37,9 +37,8 @@ class DeepSoccer:
         for i, pos in enumerate(self.positions):
             # import pdb; pdb.set_trace()
             self.soccer_grid[pos[0], pos[1], i] = 1
-        self.soccer_grid[self.agents[self.ball_owner][0][0],
-                         self.agents[self.ball_owner][0][1], 4] = 1
-
+        self.soccer_grid[self.positions[self.ball_owner][0],
+                         self.positions[self.ball_owner][1], 4] = 1
 
     def reset(self, pos_a_1=None, pos_a_2=None, pos_b_1=None, pos_b_2=None, ball_owner=None):
         def update_position(pos, w_low, w_high, h_low=0, h_high=80):
@@ -67,7 +66,7 @@ class DeepSoccer:
         self.soccer_grid = np.zeros([self.height, self.width, 5])
         for i, pos in [pos_a_1, pos_a_2, pos_b_1, pos_b_2]:
             self.soccer_grid[pos[0], pos[1], i] = 1
-        self.soccer_grid[self.agents[self.ball_owner][0][0], self.agents[self.ball_owner][0][0], 4] = 1
+        self.soccer_grid[self.positions[self.ball_owner][0][0], self.positions[self.ball_owner][0][0], 4] = 1
         return self.soccer_grid
 
     def step(self, action_a, action_b):
@@ -108,13 +107,13 @@ class DeepSoccer:
 
         # dodging
         if (new_position[0] == self.positions[opponent*2]).all() and self.ball_owner == player*2:
-            self.ball_owner = self.agents[opponent * 2][1]
+            self.ball_owner = opponent * 2
         if (new_position[0] == self.positions[opponent*2+1]).all() and self.ball_owner == player*2:
-            self.ball_owner = self.agents[opponent*2+1][1]
+            self.ball_owner = opponent*2+1
         if (new_position[1] == self.positions[opponent*2]).all() and self.ball_owner == player*2+1:
-            self.ball_owner = self.agents[opponent * 2][1]
+            self.ball_owner = opponent * 2
         if (new_position[1] == self.positions[opponent*2+1]).all() and self.ball_owner == player*2+1:
-            self.ball_owner = self.agents[opponent*2+1][1]
+            self.ball_owner = opponent*2+1
 
 
         # goal
@@ -125,10 +124,10 @@ class DeepSoccer:
 
         # on board
         if self.is_inboard(*new_position[0]) and \
-                not self.conflict(my_pos=new_position[0], friend_pos=new_position[1], all_pos=self.positions, opponent=opponent):
+                self.not_conflict(my_pos=new_position[0], friend_pos=new_position[1], all_pos=self.positions, opponent=opponent):
             self.positions[player*2] = new_position[0]
         if self.is_inboard(*new_position[1]) and \
-                not self.conflict(my_pos=new_position[0], friend_pos=new_position[1], all_pos=self.positions, opponent=opponent):
+                self.not_conflict(my_pos=new_position[0], friend_pos=new_position[1], all_pos=self.positions, opponent=opponent):
             self.positions[player*2+1] = new_position[1]
 
         # invalid action -> nothing happens. return 0 means no goal happens.
@@ -137,10 +136,10 @@ class DeepSoccer:
     def update_state(self):
         # update state
         self.soccer_grid[:] = 0
-        for i, pos in self.positions:
+        for i, pos in enumerate(self.positions):
             self.soccer_grid[pos[0], pos[1], i] = 1
-        self.soccer_grid[self.agents[self.ball_owner][0][0],
-                         self.agents[self.ball_owner][0][1], 4] = 1
+        self.soccer_grid[self.positions[self.ball_owner][0],
+                         self.positions[self.ball_owner][1], 4] = 1
         
     @staticmethod
     def action_to_move(action):
@@ -169,7 +168,8 @@ class DeepSoccer:
     def is_inboard(self, h, w):
         return 0 <= h < self.height and 0 <= w < self.width
 
-    def conflict(self, my_pos, friend_pos, all_pos, opponent):
+
+    def not_conflict(self, my_pos, friend_pos, all_pos, opponent):
         if (my_pos != friend_pos).any() and \
            (my_pos != all_pos[2*opponent]).any() and \
            (my_pos != all_pos[2*opponent+1]).any():
@@ -200,5 +200,7 @@ if __name__ == '__main__':
     # actions = [[0, 4], [0, 4], [0, 4], [1, 4], [0, 4]]
     for i, action in enumerate(actions):
         s.step(*action)
-        print(action)
+        #import pdb; pdb.set_trace()
+        print(s.positions)
+        #print(action)
         s.render(i)
