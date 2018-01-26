@@ -5,17 +5,17 @@ from matplotlib import pyplot as plt
 
 class DeepSoccer:
     # Actions [0 : Left, 1 : Up, 2 : Right, 3 : Down, 4 : Stand]
-    def __init__(self, height=80, width=100, pos_a_1=None, pos_a_2=None, pos_b_1=None, pos_b_2=None, ball_owner=0, draw_probability=0):
+    def __init__(self, height=40, width=50, pos_a_1=None, pos_a_2=None, pos_b_1=None, pos_b_2=None, ball_owner=0, draw_probability=0):
         # [3, 2]
         # [1, 1]
         if pos_a_1 is None:
             pos_a_1 = [np.random.randint(0, height), np.random.randint(0, int(width/2))]
-        elif pos_a_2 is None:
+        if pos_a_2 is None:
             while pos_a_2 is None or pos_a_1 == pos_a_2:
                 pos_a_2 = [np.random.randint(0, height), np.random.randint(0, int(width/2))]
-        elif pos_b_1 is None:
+        if pos_b_1 is None:
             pos_b_1 = [np.random.randint(0, height), np.random.randint(int(width/2), width)]
-        elif pos_b_2 is None:
+        if pos_b_2 is None:
             while pos_b_2 is None or pos_b_1 == pos_b_2:
                 pos_b_2 = [np.random.randint(0, height), np.random.randint(int(width/2), width)]
         self.agent_1 = [pos_a_1, 0]
@@ -32,10 +32,13 @@ class DeepSoccer:
         self.step_count = 0
         self.terminal = False
         # init state
+
         self.soccer_grid = np.zeros([height, width, 5])
-        for i, pos in [pos_a_1, pos_a_2, pos_b_1, pos_b_2]:
+        for i, pos in enumerate(self.positions):
+            # import pdb; pdb.set_trace()
             self.soccer_grid[pos[0], pos[1], i] = 1
-        self.soccer_grid[self.agents[self.ball_owner][0][0],self.agents[self.ball_owner][0][0], 4] = 1
+        self.soccer_grid[self.agents[self.ball_owner][0][0],
+                         self.agents[self.ball_owner][0][1], 4] = 1
 
 
     def reset(self, pos_a_1=None, pos_a_2=None, pos_b_1=None, pos_b_2=None, ball_owner=None):
@@ -68,8 +71,10 @@ class DeepSoccer:
         return self.soccer_grid
 
     def step(self, action_a, action_b):
+
         status = 0
         no_player = -1
+        self.step_count += 1
         if self.step_count >= 2000:     # run too many steps? give it a draw
             self.terminal = True
             status = -2
@@ -102,14 +107,15 @@ class DeepSoccer:
                             self.positions[player*2+1] + player_move[1]]  # new position for the current player
 
         # dodging
-        if new_position[0] == self.positions[opponent*2] and self.ball_owner == player*2:
+        if (new_position[0] == self.positions[opponent*2]).all() and self.ball_owner == player*2:
             self.ball_owner = self.agents[opponent * 2][1]
-        elif new_position[0] == self.positions[opponent*2+1] and self.ball_owner == player*2:
+        if (new_position[0] == self.positions[opponent*2+1]).all() and self.ball_owner == player*2:
             self.ball_owner = self.agents[opponent*2+1][1]
-        elif new_position[1] == self.positions[opponent*2] and self.ball_owner == player*2+1:
+        if (new_position[1] == self.positions[opponent*2]).all() and self.ball_owner == player*2+1:
             self.ball_owner = self.agents[opponent * 2][1]
-        elif new_position[1] == self.positions[opponent*2+1] and self.ball_owner == player*2+1:
+        if (new_position[1] == self.positions[opponent*2+1]).all() and self.ball_owner == player*2+1:
             self.ball_owner = self.agents[opponent*2+1][1]
+
 
         # goal
         if self.ball_owner == player*2 and self.is_ingoal(new_position[0][0], new_position[0][1], player):
@@ -118,9 +124,11 @@ class DeepSoccer:
             return 1
 
         # on board
-        if self.is_inboard(*new_position[0]):
+        if self.is_inboard(*new_position[0]) and \
+                not self.conflict(my_pos=new_position[0], friend_pos=new_position[1], all_pos=self.positions, opponent=opponent):
             self.positions[player*2] = new_position[0]
-        if self.is_inboard(*new_position[1]):
+        if self.is_inboard(*new_position[1]) and \
+                not self.conflict(my_pos=new_position[0], friend_pos=new_position[1], all_pos=self.positions, opponent=opponent):
             self.positions[player*2+1] = new_position[1]
 
         # invalid action -> nothing happens. return 0 means no goal happens.
@@ -128,10 +136,11 @@ class DeepSoccer:
 
     def update_state(self):
         # update state
-        self.soccer_grid = np.zeros([self.height, self.width, 5])
+        self.soccer_grid[:] = 0
         for i, pos in self.positions:
             self.soccer_grid[pos[0], pos[1], i] = 1
-        self.soccer_grid[self.agents[self.ball_owner][0][0], self.agents[self.ball_owner][0][0], 4] = 1
+        self.soccer_grid[self.agents[self.ball_owner][0][0],
+                         self.agents[self.ball_owner][0][1], 4] = 1
         
     @staticmethod
     def action_to_move(action):
@@ -148,7 +157,7 @@ class DeepSoccer:
 
     def is_ingoal(self, h, w, player):
         assert(player == 0 or player == 1)
-        h_gate = 8
+        h_gate = 6
         if player == 0:
             if int(self.height/2)+int(h_gate/2) >= h >= int(self.height/2)-int(h_gate/2) and w == self.width:
                 return True
@@ -160,6 +169,14 @@ class DeepSoccer:
     def is_inboard(self, h, w):
         return 0 <= h < self.height and 0 <= w < self.width
 
+    def conflict(self, my_pos, friend_pos, all_pos, opponent):
+        if (my_pos != friend_pos).any() and \
+           (my_pos != all_pos[2*opponent]).any() and \
+           (my_pos != all_pos[2*opponent+1]).any():
+            return True
+        else:
+            return False
+
     @staticmethod
     def choose_player():
         return np.random.randint(0, 4)
@@ -168,17 +185,20 @@ class DeepSoccer:
     def choose_side():
         return np.random.randint(0, 2)
 
-    def render(self):
-        render_grid = np.sum(self.soccer_grid[:, :, 0:-1], axis=2) + 10 * self.soccer_grid[:, :, -1]
-        matplotlib.image.imsave('test.png', render_grid)
+    def render(self, num):
+        render_grid = np.sum(self.soccer_grid[:, :, 0:-1], axis=2)*2 + 5 * self.soccer_grid[:, :, -1]
+        #import pdb; pdb.set_trace()
+        render_grid = render_grid.reshape(self.height, self.width, 1) * 0.13
+        matplotlib.image.imsave(str(num)+'.png',  np.tile(render_grid, (1, 1, 3)))
 
 
 if __name__ == '__main__':
     s = DeepSoccer()
-    s.render()
-    actions = [[2, 1], [2, 4], [2, 3], [2, 0], [2, 0]]
+    s.render(-1)
+
+    actions = np.array([[[2, 2], [2, 2]], [[2, 2], [2, 2]], [[2, 2], [2, 2]], [[2, 2], [2, 2]], [[2, 2], [2, 2]]])
     # actions = [[0, 4], [0, 4], [0, 4], [1, 4], [0, 4]]
-    for action in actions:
+    for i, action in enumerate(actions):
         s.step(*action)
         print(action)
-        s.render()
+        s.render(i)
