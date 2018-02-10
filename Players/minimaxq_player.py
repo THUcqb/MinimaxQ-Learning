@@ -8,11 +8,13 @@ class MinimaxQPlayer:
         self.decay = decay  # the default value for decay is 0.9 according to the paper
         self.eps = eps    # eps is the exploration
         self.gamma = gamma  # gamma the dicounted factor
-        self.alpha = 1     #  update steps
+        self.alpha = 1  # update steps
         self.V = np.ones(num_states)   # value function
-        self.Q = np.ones((num_states, num_actions_a, num_actions_b))  # minimax Q function
-        self.pi = np.ones((num_states, num_actions_a)) / num_actions_a  # player 1's policy
-        self.num_states = num_states  #TODO: check soccer to state 
+        # minimax Q function
+        self.Q = np.ones((num_states, num_actions_a, num_actions_b))
+        self.pi = np.ones((num_states, num_actions_a)) / \
+            num_actions_a  # player 1's policy
+        self.num_states = num_states  # TODO: check soccer to state
         self.num_actions_a = num_actions_a  # 5 for soccer
         self.num_actions_b = num_actions_b  # 5 for soccer
         self.learning = True  # is this in the learning stage
@@ -21,7 +23,8 @@ class MinimaxQPlayer:
         if self.learning and np.random.rand() < self.eps:  # e-greedy
             action = np.random.randint(self.num_actions_a)
         else:
-            action = self.weighted_action_choice(state, self.num_actions_a)  # check actions
+            action = self.weighted_action_choice(
+                state, self.num_actions_a)  # check actions
         return action
 
     def weighted_action_choice(self, state, num_action):
@@ -35,7 +38,8 @@ class MinimaxQPlayer:
         self.Q[state, action_a, action_b] = (1 - self.alpha) * self.Q[state, action_a, action_b] + \
             self.alpha * (reward + self.gamma * self.V[next_state])
         # harry: this is not elegant. better update V and pi in two functions
-        self.V[state] = self.update_policy(state)  # EQUIVALENT TO : min(np.sum(self.Q[state].T * self.pi[state], axis=1))
+        # EQUIVALENT TO : min(np.sum(self.Q[state].T * self.pi[state], axis=1))
+        self.V[state] = self.update_policy(state)
         self.alpha *= self.decay   # this can be something to tune
 
     def update_policy(self, state, retry=False):
@@ -50,7 +54,8 @@ class MinimaxQPlayer:
         b_eq = [1]
         bounds = ((None, None),) + ((0, 1),) * self.num_actions_a
 
-        res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds)
+        res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq,
+                      b_eq=b_eq, bounds=bounds)
 
         if res.success:
             self.pi[state] = res.x[1:]

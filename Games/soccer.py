@@ -31,7 +31,8 @@ class Soccer:
         if pos_b is not None:
             self.initPositions[1] = pos_b
         else:
-            self.initPositions[1] = [np.random.randint(self.height), self.width-1]
+            self.initPositions[1] = [
+                np.random.randint(self.height), self.width-1]
 
         if ball_owner is None:
             ball_owner = self.choose_player()
@@ -51,12 +52,14 @@ class Soccer:
         first = self.choose_player()
         second = 1 - first
         action_in_play = [action_a, action_b]
-        status = self.move(first, action_in_play[first])    # init win? return goal, init, terminal
+        # init win? return goal, init, terminal
+        status = self.move(first, action_in_play[first])
         if status == 1:
             self.terminal = True
             return status, first, self.terminal
 
-        status = self.move(second, action_in_play[1 - first])  # second win? return goal, init, terminal
+        # second win? return goal, init, terminal
+        status = self.move(second, action_in_play[1 - first])
         if status == 1:
             self.terminal == True
             return status, second, self.terminal
@@ -64,16 +67,18 @@ class Soccer:
 
     def move(self, player, action_move):
         opponent = 1 - player
-        new_position = self.positions[player] + self.action_to_move(action_move)
+        new_position = self.positions[player] + \
+            self.action_to_move(action_move)
 
         # If it's opponent position
         if (new_position == self.positions[opponent]).all():
             self.ball_owner = opponent
         # If it's the goal
-        elif self.ball_owner is player and self.is_ingoal(new_position[0], new_position[1], player) :
+        elif self.ball_owner is player and self.is_ingoal(new_position[0], new_position[1], player):
             return 1
         # If it's in board
-        elif self.is_inboard(*new_position):  # * here is to use component of new_position as argument
+        # * here is to use component of new_position as argument
+        elif self.is_inboard(*new_position):
             self.positions[player] = new_position
         # invalid action -> nothing happens. return 0 means no goal happens.
         return 0
@@ -106,7 +111,8 @@ class Soccer:
         return np.random.randint(0, 2)
 
     def render(self, positions=None, ball_owner=None):
-        positions = self.positions if positions is None else np.array(positions)
+        positions = self.positions if positions is None else np.array(
+            positions)
         ball_owner = self.ball_owner if ball_owner is None else ball_owner
         #import pdb; pdb.set_trace()
         board = ''
