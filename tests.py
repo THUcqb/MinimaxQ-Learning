@@ -125,7 +125,7 @@ def testSoccer(iterations):
     # CHOOSE PLAYER_A TYPE
     # playerA = RandomPlayer(num_actions)
     playerA = MinimaxQPlayer(num_states, num_actions, num_actions,
-                             decay=decay, eps=0.3, gamma=1-draw_probability)
+                             decay=decay, eps=0.3, gamma=1 - draw_probability)
     # playerA = QPlayer(num_states, num_actions, decay=decay, eps=0.2, gamma=1-draw_probability)
     # playerA = np.load('state_avedPlayersminimax/Q_SoccerA_100000.npy').item()
 
@@ -170,13 +170,13 @@ def testSoccerPerformance():
     print("STEP 1: CREATE A DETERMINISTIC 'PLAYER B' TO FIGHT WITH")
 
     # CHOOSE PLAYER_B AS Q LEARNER
-    playerB = QPlayer(num_states, num_actions, decay=1-1e-4,
-                      eps=0.3, gamma=1-draw_probability)
+    playerB = QPlayer(num_states, num_actions, decay=1 - 1e-4,
+                      eps=0.3, gamma=1 - draw_probability)
 
     # TRAIN IT AGAINST ANOTHER Q LEARNER
     print("\n1.1 - TRAIN OUR 'PLAYER B' (Q LEARNER) AGAINST ANOTHER Q LEARNER - 5000 games")
     playerA1 = QPlayer(num_states, num_actions, decay=1 -
-                       1e-4, eps=0.5, gamma=1-draw_probability)
+                       1e-4, eps=0.5, gamma=1 - draw_probability)
     tester = SoccerTester(game)
     wins = testGame(playerA1, playerB, tester, 5000)
 
@@ -185,7 +185,7 @@ def testSoccerPerformance():
     print("('PLAYER B' is not learning anymore)")
     playerB.learning = False
     playerA2 = QPlayer(num_states, num_actions, decay=1 -
-                       1e-4, eps=0.3, gamma=1-draw_probability)
+                       1e-4, eps=0.3, gamma=1 - draw_probability)
     wins = testGame(playerA2, playerB, tester, 10000)
     tester.plot_result(wins)
 

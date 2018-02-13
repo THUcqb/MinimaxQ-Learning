@@ -32,7 +32,7 @@ class Soccer:
             self.initPositions[1] = pos_b
         else:
             self.initPositions[1] = [
-                np.random.randint(self.height), self.width-1]
+                np.random.randint(self.height), self.width - 1]
 
         if ball_owner is None:
             ball_owner = self.choose_player()
