@@ -46,7 +46,7 @@ class DeepSoccer(gym.Env):
         self.state[player_locations[ball_owner] // self.width, player_locations[ball_owner] % self.width, 2 * self.num_players] = 1
         return self.state
 
-    def _step(self):
+    def _step(self, action):
         # TODO
         reward = 1.0
         done = False
@@ -63,12 +63,14 @@ class DeepSoccer(gym.Env):
         rendered_rgb[:, :, 0]= np.sum(self.state[:, :, :self.num_players], axis=2)
         rendered_rgb[:, :, 1]= self.state[:, :, -1]
         rendered_rgb[:, :, 2]= np.sum(self.state[:, :, self.num_players:-1], axis=2)
-
+        rendered_rgb /= np.max(rendered_rgb)
+        # float to uint8
+        rendered_rgb = (rendered_rgb * 255).round()
         # Amplifying the image
-        rendered_rgb = np.kron(rendered_rgb, np.ones((16, 16, 1)))
+        rendered_rgb = np.kron(rendered_rgb, np.ones((16, 16, 1))).astype(np.uint8)
 
         # DEBUG save and view the image
-        # matplotlib.image.imsave('cqb.png', rendered_rgb)
+        matplotlib.image.imsave('cqb.png', rendered_rgb)
         return rendered_rgb
 
     move_vec = {
