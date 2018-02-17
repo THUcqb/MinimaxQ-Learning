@@ -46,10 +46,17 @@ class DeepSoccer(gym.Env):
         self.state[player_locations[ball_owner] // self.width, player_locations[ball_owner] % self.width, 2 * self.num_players] = 1
         return self.state
 
+    temp = 0
     def _step(self, action):
-        # TODO
-        reward = 1.0
+        '''Just to keep the framework work...'''
+        reward = 0.0
         done = False
+        self.temp += 1
+        if self.temp == 100:
+            reward = 1.0
+            done = True
+            self.temp = 0
+
         return self.state, reward, done, {}
 
     def _render(self, mode='human', close=False):
@@ -80,19 +87,10 @@ class DeepSoccer(gym.Env):
         3: [1,  0],
         4: [0,  0],
     }
-
-    def _in_goal(self, h, w, player):
-        # TODO
-        # assert(player == 0 or player == 1)
-        # if player == 0:
-        #     if (h == 1 or h == 2) and w == 5:
-        #         return True
-        # elif player == 1:
-        #     if (h == 1 or h == 2) and w == -1:
-        #         return True
-        # return False
-        pass
-
+##
+#    def _in_goal(self, h, w):
+#        pass
+#
     def _in_board(self, h, w):
         return 0 <= h < self.height and 0 <= w < self.width
 
