@@ -1,215 +1,216 @@
+import logging
+import math
+import gym
+from gym import spaces
+from gym.utils import seeding
 import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
 
+logger = logging.getLogger(__name__)
 
-class DeepSoccer:
-    # Actions [0 : Left, 1 : Up, 2 : Right, 3 : Down, 4 : Stand]
-    def __init__(self, height=40, width=50, pos_a_1=None, pos_a_2=None, pos_b_1=None, pos_b_2=None, ball_owner=0, draw_probability=0):
-        # [3, 2]
-        # [1, 1]
-        if pos_a_1 is None:
-            pos_a_1 = [np.random.randint(
-                0, height), np.random.randint(0, int(width/2))]
-        if pos_a_2 is None:
-            while pos_a_2 is None or pos_a_1 == pos_a_2:
-                pos_a_2 = [np.random.randint(
-                    0, height), np.random.randint(0, int(width/2))]
-        if pos_b_1 is None:
-            pos_b_1 = [np.random.randint(
-                0, height), np.random.randint(int(width/2), width)]
-        if pos_b_2 is None:
-            while pos_b_2 is None or pos_b_1 == pos_b_2:
-                pos_b_2 = [np.random.randint(
-                    0, height), np.random.randint(int(width/2), width)]
-        self.agent_1 = [pos_a_1, 0]
-        self.agent_2 = [pos_a_2, 1]
-        self.agent_3 = [pos_b_1, 2]
-        self.agent_4 = [pos_b_2, 3]
-        self.agents = [self.agent_1, self.agent_2, self.agent_3, self.agent_4]
+
+class DeepSoccer(gym.Env):
+    metadata = {
+        'render.modes': ['human', 'rgb_array'],
+        'video.frames_per_second': 50
+    }
+
+    move_vec = {
+        0: [0,  0],
+        1: [0, -1],
+        2: [-1, 0],
+        3: [0,  1],
+        4: [1,  0],
+    }
+
+    def __init__(self, num_players=2, height=8, width=10):
+        self.num_players = num_players
         self.height = height
         self.width = width
-        self.positions = np.array([pos_a_1, pos_a_2, pos_b_1, pos_b_2])
-        self.initPositions = np.array([pos_a_1, pos_a_2, pos_b_1, pos_b_2])
-        self.ball_owner = ball_owner
-        self.draw_probability = draw_probability
-        self.step_count = 0
-        self.terminal = False
-        # init state
+        # 1 stand, 4 direction, (N-1)teammates
+        self.num_actions_for_one_player = 1 + 4 + self.num_players - 1
+        self.action_space = spaces.Discrete(self.num_actions_for_one_player ** num_players)
+        self.observation_space = spaces.Box(
+            np.zeros((height, width, 2 * num_players + 1), dtype=bool),
+            np.ones((height, width, 2 * num_players + 1), dtype=bool),
+        )
+        self._seed()
 
-        self.soccer_grid = np.zeros([height, width, 5])
-        for i, pos in enumerate(self.positions):
-            # import pdb; pdb.set_trace()
-            self.soccer_grid[pos[0], pos[1], i] = 1
-        self.soccer_grid[self.positions[self.ball_owner][0],
-                         self.positions[self.ball_owner][1], 4] = 1
+    def _seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
 
-    def reset(self, pos_a_1=None, pos_a_2=None, pos_b_1=None, pos_b_2=None, ball_owner=None):
-        def update_position(pos, w_low, w_high, h_low=0, h_high=80):
-            if pos is not None:
-                return pos
+    def _reset(self):
+        '''Randomly put the players on the grid and give the ball to someone.
+
+        State of shape H*W*(2 * number of players + 1(ball))
+        '''
+        self.state = np.zeros((self.height, self.width, 2 * self.num_players + 1), dtype=bool)
+        # 1 Put players
+        player_locations = self.np_random.randint(0, self.height * (self.width // 2), 2 * self.num_players)
+        for player, loc in enumerate(player_locations):
+            if player < self.num_players:
+                # team 0 randomly on left half field
+                self.state[loc % self.height, loc // self.height, player] = 1
             else:
-                return [np.random.randint(h_low, h_high), np.random.randint(w_low, w_high)]
-        for i, pos in enumerate([pos_a_1, pos_a_2, pos_b_1, pos_b_2]):
-            if i <= 1:
-                temp_w_low = 0
-                temp_w = int(self.width/2)
+                # team 1 randomly on right half field
+                self.state[loc % self.height, self.width - 1 - loc // self.height, player] = 1
+        # 2 Put the ball
+        ball_owner = self.np_random.randint(2 * self.num_players)
+        self.state[:, :, -1] = self.state[:, :, ball_owner]
+        return self.state
+
+    def _step(self, action):
+        # 1 Find the ball. Ball represented in state[:, :, -1]
+        ball_x, ball_y = self._onehot_to_index(self.state[:, :, -1])
+
+        # 2 Determine who the ball will go with
+        #   Get all players standing at the ball's location
+        players_at_ball = [player for player in range(2 * self.num_players)
+                                  if self.state[ball_x, ball_y, player]]
+        #   The ball will go with this guy
+        player_with_ball = self.np_random.choice(players_at_ball)
+
+        # 3 Step the players, for team 0 and team 1
+        #   During this process, the ball's owner may change
+        #   Take random action for team 1 in Q-learning.
+        player_with_ball = self._step_team(0, action, player_with_ball)
+        random_action = self.np_random.choice(self.action_space.n)
+        player_with_ball = self._step_team(1, random_action, player_with_ball)
+
+        # 4 Step the ball
+        self.state[:, :, -1] = self.state[:, :, player_with_ball]
+
+        # 5 Judge, the goal have a height of 4 on the leftest and rightest side.
+        reward = 0.0
+        done = False
+        new_ball_x, new_ball_y = self._onehot_to_index(self.state[:, :, -1])
+        if new_ball_y == 0 and abs(new_ball_x - self.height / 2) < 2:
+            reward = -1.0
+            done = True
+        if new_ball_y == self.width-1 and abs(new_ball_x - self.height / 2) < 3:
+            reward = 1.0
+            done = True
+
+        return self.state, reward, done, {}
+
+    def _step_team(self, team, action, player_with_ball):
+        new_player_with_ball = None
+        for player in range(team * self.num_players, (team + 1) * self.num_players):
+            action_t = action % self.num_actions_for_one_player
+            action //= self.num_actions_for_one_player
+            if action_t < 5:
+                # Stand / move
+                x, y = self._onehot_to_index(self.state[:, :, player])
+                if self._in_board(x + self.move_vec[action_t][0], y + self.move_vec[action_t][1]):
+                    self.state[x, y, player] = 0
+                    x += self.move_vec[action_t][0]
+                    y += self.move_vec[action_t][1]
+                    self.state[x, y, player] = 1
             else:
-                temp_w_low = int(self.width/2)
-                temp_w = self.width
-            self.initPositions[i] = update_position(pos, temp_w_low, temp_w)
+                # Pass the ball only if you have the ball
+                if player_with_ball != player:
+                    continue
 
-        if ball_owner is None:
-            ball_owner = self.choose_player()
+                # To whom you want to pass
+                target = action_t - 5 + team * self.num_players
 
-        self.positions = self.initPositions.copy()
-        self.ball_owner = ball_owner
-        self.step_count = 0
-        self.terminal = False
-        # reset state
-        self.soccer_grid = np.zeros([self.height, self.width, 5])
-        for i, pos in [pos_a_1, pos_a_2, pos_b_1, pos_b_2]:
-            self.soccer_grid[pos[0], pos[1], i] = 1
-        self.soccer_grid[self.positions[self.ball_owner][0]
-                         [0], self.positions[self.ball_owner][0][0], 4] = 1
-        return self.soccer_grid
+                # action doesn't include passing to oneself
+                # so fix the misalignment
+                if target >= player:
+                    target += 1
+                # now target is from 0~N-1 for team0, N~2N-1 for team1,
+                # && target != player
 
-    def step(self, action_a, action_b):
-
-        status = 0
-        no_player = -1
-        self.step_count += 1
-        if self.step_count >= 2000:     # run too many steps? give it a draw
-            self.terminal = True
-            status = -2
-            return self.soccer_grid, status, no_player, self.terminal
-        first = self.choose_side()
-        second = 1 - first
-        action_in_play = [action_a, action_b]
-        # init win? return goal, init, terminal
-        status = self.move(first, action_in_play[first])
-        self.update_state()
-        if status == 1:
-            self.terminal = True
-            return self.soccer_grid, status, first, self.terminal
-
-        # second win? return goal, second, terminal
-        status = self.move(second, action_in_play[1 - first])
-        self.update_state()
-        if status == 1:
-            self.terminal = True
-            return self.soccer_grid, status, second, self.terminal
-        # the game is going on.
-        return self.soccer_grid, 0, no_player, self.terminal
-
-    def move(self, player, action_move):
-        opponent = 1 - player
-        player_move = self.action_to_move(action_move)
-        if player_move[0] == 'passball':
-            self.ball_owner = player*2+1
-        elif player_move[1] == 'passball':
-            self.ball_owner = player*2
+                if self._trajectory_clear(player, target):
+                    new_player_with_ball = target
+        if new_player_with_ball is not None:
+            return new_player_with_ball
         else:
-            new_position = [self.positions[player*2] + player_move[0],
-                            self.positions[player*2+1] + player_move[1]]  # new position for the current player
+            return player_with_ball
 
-        # dodging
-        if (new_position[0] == self.positions[opponent*2]).all() and self.ball_owner == player*2:
-            self.ball_owner = opponent * 2
-        if (new_position[0] == self.positions[opponent*2+1]).all() and self.ball_owner == player*2:
-            self.ball_owner = opponent*2+1
-        if (new_position[1] == self.positions[opponent*2]).all() and self.ball_owner == player*2+1:
-            self.ball_owner = opponent * 2
-        if (new_position[1] == self.positions[opponent*2+1]).all() and self.ball_owner == player*2+1:
-            self.ball_owner = opponent*2+1
+    def _render(self, mode='human', close=False):
+        '''Return rgb array (height, width, 3)
 
-        # goal
-        if self.ball_owner == player*2 and self.is_ingoal(new_position[0][0], new_position[0][1], player):
-            return 1
-        elif self.ball_owner == player*2+1 and self.is_ingoal(new_position[1][0], new_position[1][1], player):
-            return 1
+        Red for team A
+        Green for the ball
+        Blue for team B
+        '''
+        rendered_rgb = np.zeros([self.height, self.width, 3])
+        rendered_rgb[:, :, 0]= np.sum(self.state[:, :, :self.num_players], axis=2)
+        rendered_rgb[:, :, 1]= self.state[:, :, -1]
+        rendered_rgb[:, :, 2]= np.sum(self.state[:, :, self.num_players:-1], axis=2)
+        rendered_rgb /= np.max(rendered_rgb)
+        # float to uint8
+        rendered_rgb = (rendered_rgb * 255).round()
+        # Amplifying the image
+        rendered_rgb = np.kron(rendered_rgb, np.ones((16, 16, 1))).astype(np.uint8)
+        return rendered_rgb
 
-        # on board
-        if self.is_inboard(*new_position[0]) and \
-                self.not_conflict(my_pos=new_position[0], friend_pos=new_position[1], all_pos=self.positions, opponent=opponent):
-            self.positions[player*2] = new_position[0]
-        if self.is_inboard(*new_position[1]) and \
-                self.not_conflict(my_pos=new_position[0], friend_pos=new_position[1], all_pos=self.positions, opponent=opponent):
-            self.positions[player*2+1] = new_position[1]
-
-        # invalid action -> nothing happens. return 0 means no goal happens.
-        return 0
-
-    def update_state(self):
-        # update state
-        self.soccer_grid[:] = 0
-        for i, pos in enumerate(self.positions):
-            self.soccer_grid[pos[0], pos[1], i] = 1
-        self.soccer_grid[self.positions[self.ball_owner][0],
-                         self.positions[self.ball_owner][1], 4] = 1
+    def _in_board(self, x, y):
+        return 0 <= x < self.height and 0 <= y < self.width
 
     @staticmethod
-    def action_to_move(action):
-        # Actions [0 : Left, 1 : Up, 2 : Right, 3 : Down, 4 : Stand, 5:pass the ball]
-        switcher = {
-            0: [0, -1],
-            1: [-1, 0],
-            2: [0,  1],
-            3: [1,  0],
-            4: [0,  0],
-            5: 'passball'
-        }
-        return [switcher.get(action[0]), switcher.get(action[1])]
+    def _onehot_to_index(arr):
+        '''Return the (x, y) indices of the one-hot 2d numpy array.'''
+        return np.unravel_index(np.argmax(arr), arr.shape)
 
-    def is_ingoal(self, h, w, player):
-        assert(player == 0 or player == 1)
-        h_gate = 6
-        if player == 0:
-            if int(self.height/2)+int(h_gate/2) >= h >= int(self.height/2)-int(h_gate/2) and w == self.width:
-                return True
-        elif player == 1:
-            if int(self.height/2)+int(h_gate/2) >= h >= int(self.height/2)-int(h_gate/2) and w == -1:
-                return True
-        return False
+    def _trajectory_clear(self, holder, target):
+        '''To see if people or ball on the line between the two player.'''
+        x0, y0 = self._onehot_to_index(self.state[:, :, holder])
+        x1, y1 = self._onehot_to_index(self.state[:, :, target])
+        trajectory = self._trajectory(x0, y0, x1, y1)
+        # Take people and ball as obstacles
+        obstacles = np.sum(self.state, axis=-1)
 
-    def is_inboard(self, h, w):
-        return 0 <= h < self.height and 0 <= w < self.width
-
-    def not_conflict(self, my_pos, friend_pos, all_pos, opponent):
-        if (my_pos != friend_pos).any() and \
-           (my_pos != all_pos[2*opponent]).any() and \
-           (my_pos != all_pos[2*opponent+1]).any():
-            return True
-        else:
-            return False
+        for x, y in trajectory:
+            if obstacles[x, y]:
+                return False
+        return True
 
     @staticmethod
-    def choose_player():
-        return np.random.randint(0, 4)
+    def _trajectory(x0, y0, x1, y1):
+        '''Wrapper for compute trajectory between two points.'''
+        rearranged_xy = False
+        if abs(y0 - y1) > abs(x0 - x1):
+            x0, y0, x1, y1 = y0, x0, y1, x1
+            rearranged_xy = True
+        if x0 > x1:
+            x0, y0, x1, y1 = x1, y1, x0, y0
+        trajectory = DeepSoccer._trajectory_Bresenham(x0, y0, x1, y1)
+        if rearranged_xy:
+            trajectory = [(y, x) for (x, y) in trajectory]
+        return trajectory
 
     @staticmethod
-    def choose_side():
-        return np.random.randint(0, 2)
+    def _trajectory_Bresenham(x0, y0, x1, y1):
+        '''Return the trajectory to pass the ball between two people.
 
-    def render(self, num):
-        render_grid = np.sum(
-            self.soccer_grid[:, :, 0:-1], axis=2)*2 + 5 * self.soccer_grid[:, :, -1]
-        #import pdb; pdb.set_trace()
-        render_grid = render_grid.reshape(self.height, self.width, 1) * 0.13
-        matplotlib.image.imsave(
-            str(num)+'.png',  np.tile(render_grid, (1, 1, 3)))
+        Refer to [Bresenham's line algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm)
+
+        Params should satisfy: abs(x1-x0) >= abs(y1-y0), x1 > x0
+        '''
+        trajectory = []
+        dx, dy = x1 - x0, y1 - y0
+        yi = 1
+        if dy < 0:
+            yi = -1
+            dy = -dy
+        y = y0
+        D = 2 * dy - dx
+
+        for x in range(x0, x1):
+            trajectory.append((x, y))
+            if D > 0:
+                y = y + yi
+                D -= 2 * dx
+            D += 2 * dy
+
+        return trajectory[1:]
 
 
 if __name__ == '__main__':
     s = DeepSoccer()
-    s.render(-1)
-
-    actions = np.array([[[2, 2], [2, 2]], [[2, 2], [2, 2]], [
-                       [2, 2], [2, 2]], [[2, 2], [2, 2]], [[2, 2], [2, 2]]])
-    # actions = [[0, 4], [0, 4], [0, 4], [1, 4], [0, 4]]
-    for i, action in enumerate(actions):
-        s.step(*action)
-        #import pdb; pdb.set_trace()
-        print(s.positions)
-        # print(action)
-        s.render(i)
+    print(s.reset())
+    matplotlib.image.imsave('cqb.png', s.render())
