@@ -73,8 +73,11 @@ class DeepSoccer(gym.Env):
         player_with_ball = self.np_random.choice(players_at_ball)
 
         # 3 Step the players, for team 0 and team 1
-        self._step_team(0, action)
-        self._step_team(1, self.np_random.choice(self.action_space.n))
+        #   During this process, the ball's owner may change
+        #   Take random action for team 1 in Q-learning.
+        player_with_ball = self._step_team(0, action, player_with_ball)
+        random_action = self.np_random.choice(self.action_space.n)
+        player_with_ball = self._step_team(1, random_action, player_with_ball)
 
         # 4 Step the ball
         self.state[:, :, -1] = self.state[:, :, player_with_ball]
@@ -92,12 +95,13 @@ class DeepSoccer(gym.Env):
 
         return self.state, reward, done, {}
 
-    def _step_team(self, team, action):
+    def _step_team(self, team, action, player_with_ball):
+        new_player_with_ball = None
         for player in range(team * self.num_players, (team + 1) * self.num_players):
             action_t = action % self.num_actions_for_one_player
             action //= self.num_actions_for_one_player
             if action_t < 5:
-                # Stand or move
+                # Stand / move
                 x, y = self._onehot_to_index(self.state[:, :, player])
                 if self._in_board(x + self.move_vec[action_t][0], y + self.move_vec[action_t][1]):
                     self.state[x, y, player] = 0
@@ -105,8 +109,26 @@ class DeepSoccer(gym.Env):
                     y += self.move_vec[action_t][1]
                     self.state[x, y, player] = 1
             else:
-                # TODO Pass the ball
-                pass
+                # Pass the ball only if you have the ball
+                if player_with_ball != player:
+                    continue
+
+                # To whom you want to pass
+                target = action_t - 5 + team * self.num_players
+
+                # action doesn't include passing to oneself
+                # so fix the misalignment
+                if target >= player:
+                    target += 1
+                # now target is from 0~N-1 for team0, N~2N-1 for team1,
+                # && target != player
+
+                if self._trajectory_clear(player, target):
+                    new_player_with_ball = target
+        if new_player_with_ball is not None:
+            return new_player_with_ball
+        else:
+            return player_with_ball
 
     def _render(self, mode='human', close=False):
         '''Return rgb array (height, width, 3)
@@ -133,6 +155,59 @@ class DeepSoccer(gym.Env):
     def _onehot_to_index(arr):
         '''Return the (x, y) indices of the one-hot 2d numpy array.'''
         return np.unravel_index(np.argmax(arr), arr.shape)
+
+    def _trajectory_clear(self, holder, target):
+        '''To see if people or ball on the line between the two player.'''
+        x0, y0 = self._onehot_to_index(self.state[:, :, holder])
+        x1, y1 = self._onehot_to_index(self.state[:, :, target])
+        trajectory = self._trajectory(x0, y0, x1, y1)
+        # Take people and ball as obstacles
+        obstacles = np.sum(self.state, axis=-1)
+
+        for x, y in trajectory:
+            if obstacles[x, y]:
+                return False
+        return True
+
+    @staticmethod
+    def _trajectory(x0, y0, x1, y1):
+        '''Wrapper for compute trajectory between two points.'''
+        rearranged_xy = False
+        if abs(y0 - y1) > abs(x0 - x1):
+            x0, y0, x1, y1 = y0, x0, y1, x1
+            rearranged_xy = True
+        if x0 > x1:
+            x0, y0, x1, y1 = x1, y1, x0, y0
+        trajectory = DeepSoccer._trajectory_Bresenham(x0, y0, x1, y1)
+        if rearranged_xy:
+            trajectory = [(y, x) for (x, y) in trajectory]
+        return trajectory
+
+    @staticmethod
+    def _trajectory_Bresenham(x0, y0, x1, y1):
+        '''Return the trajectory to pass the ball between two people.
+
+        Refer to [Bresenham's line algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm)
+
+        Params should satisfy: abs(x1-x0) >= abs(y1-y0), x1 > x0
+        '''
+        trajectory = []
+        dx, dy = x1 - x0, y1 - y0
+        yi = 1
+        if dy < 0:
+            yi = -1
+            dy = -dy
+        y = y0
+        D = 2 * dy - dx
+
+        for x in range(x0, x1):
+            trajectory.append((x, y))
+            if D > 0:
+                y = y + yi
+                D -= 2 * dx
+            D += 2 * dy
+
+        return trajectory[1:]
 
 
 if __name__ == '__main__':
