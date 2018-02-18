@@ -24,7 +24,7 @@ class DeepSoccer(gym.Env):
         4: [1,  0],
     }
 
-    def __init__(self, num_players=3, height=8, width=10):
+    def __init__(self, num_players=2, height=8, width=10):
         self.num_players = num_players
         self.height = height
         self.width = width
@@ -82,11 +82,11 @@ class DeepSoccer(gym.Env):
         # 4 Step the ball
         self.state[:, :, -1] = self.state[:, :, player_with_ball]
 
-        # 5 Judge, the goal have a height of 5 on the leftest and rightest side.
+        # 5 Judge, the goal have a height of 4 on the leftest and rightest side.
         reward = 0.0
         done = False
         new_ball_x, new_ball_y = self._onehot_to_index(self.state[:, :, -1])
-        if new_ball_y == 0 and abs(new_ball_x - self.height / 2) < 3:
+        if new_ball_y == 0 and abs(new_ball_x - self.height / 2) < 2:
             reward = -1.0
             done = True
         if new_ball_y == self.width-1 and abs(new_ball_x - self.height / 2) < 3:
