@@ -24,7 +24,7 @@ class DeepSoccer(gym.Env):
         4: [1,  0],
     }
 
-    def __init__(self, num_players=2, height=8, width=10):
+    def __init__(self, num_players=2, height=9, width=11):
         self.num_players = num_players
         self.height = height
         self.width = width
@@ -56,9 +56,8 @@ class DeepSoccer(gym.Env):
             else:
                 # team 1 randomly on right half field
                 self.state[loc % self.height, self.width - 1 - loc // self.height, player] = 1
-        # 2 Put the ball
-        ball_owner = self.np_random.randint(2 * self.num_players)
-        self.state[:, :, -1] = self.state[:, :, ball_owner]
+        # 2 Put the ball in the middle
+        self.state[self.height // 2, self.width // 2, -1] = 1
         return self.state
 
     def _step(self, action):
@@ -70,7 +69,7 @@ class DeepSoccer(gym.Env):
         players_at_ball = [player for player in range(2 * self.num_players)
                                   if self.state[ball_x, ball_y, player]]
         #   The ball will go with this guy
-        player_with_ball = self.np_random.choice(players_at_ball)
+        player_with_ball = self.np_random.choice(players_at_ball) if players_at_ball != [] else None
 
         # 3 Step the players, for team 0 and team 1
         #   During this process, the ball's owner may change
@@ -80,16 +79,17 @@ class DeepSoccer(gym.Env):
         player_with_ball = self._step_team(1, random_action, player_with_ball)
 
         # 4 Step the ball
-        self.state[:, :, -1] = self.state[:, :, player_with_ball]
+        if player_with_ball != None:
+            self.state[:, :, -1] = self.state[:, :, player_with_ball]
 
         # 5 Judge, the goal have a height of 4 on the leftest and rightest side.
         reward = 0.0
         done = False
         new_ball_x, new_ball_y = self._onehot_to_index(self.state[:, :, -1])
-        if new_ball_y == 0 and abs(new_ball_x - self.height / 2) < 2:
+        if new_ball_y == 0 and abs(new_ball_x - (self.height - 1) / 2) < 2:
             reward = -1.0
             done = True
-        if new_ball_y == self.width-1 and abs(new_ball_x - self.height / 2) < 3:
+        if new_ball_y == self.width - 1 and abs(new_ball_x - (self.height - 1) / 2) < 3:
             reward = 1.0
             done = True
 
@@ -156,10 +156,15 @@ class DeepSoccer(gym.Env):
         '''Return the (x, y) indices of the one-hot 2d numpy array.'''
         return np.unravel_index(np.argmax(arr), arr.shape)
 
+    MAX_PASSING_DISTANCE = 5
     def _trajectory_clear(self, holder, target):
-        '''To see if people or ball on the line between the two player.'''
+        '''To see if people or ball on the line between the two player.
+
+        Or the two players are too far away.'''
         x0, y0 = self._onehot_to_index(self.state[:, :, holder])
         x1, y1 = self._onehot_to_index(self.state[:, :, target])
+        if (x0 - x1) ** 2 + (y0 - y1) ** 2 > DeepSoccer.MAX_PASSING_DISTANCE ** 2:
+            return False
         trajectory = self._trajectory(x0, y0, x1, y1)
         # Take people and ball as obstacles
         obstacles = np.sum(self.state, axis=-1)
