@@ -82,14 +82,14 @@ class DeepSoccer(gym.Env):
         if player_with_ball != None:
             self.state[:, :, -1] = self.state[:, :, player_with_ball]
 
-        # 5 Judge, the goal have a height of 4 on the leftest and rightest side.
+        # 5 Judge, the goal have a height of 4 on the leftmost and rightmost side.
         reward = 0.0
         done = False
         new_ball_x, new_ball_y = self._onehot_to_index(self.state[:, :, -1])
         if new_ball_y == 0 and abs(new_ball_x - (self.height - 1) / 2) < 2:
             reward = -1.0
             done = True
-        if new_ball_y == self.width - 1 and abs(new_ball_x - (self.height - 1) / 2) < 3:
+        if new_ball_y == self.width - 1 and abs(new_ball_x - (self.height - 1) / 2) < 2:
             reward = 1.0
             done = True
 
