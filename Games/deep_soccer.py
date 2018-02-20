@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class DeepSoccer(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
-        'video.frames_per_second': 50
+        'video.frames_per_second': 10
     }
 
     move_vec = {
@@ -24,13 +24,15 @@ class DeepSoccer(gym.Env):
         4: [1,  0],
     }
 
-    def __init__(self, num_players=2, height=9, width=11):
+    def __init__(self, num_players=1, height=9, width=9):
         self.num_players = num_players
         self.height = height
         self.width = width
+        self.MAX_STEPS_IN_ONE_EPISODE = self.height * self.width
         # 1 stand, 4 direction, (N-1)teammates
         self.num_actions_for_one_player = 1 + 4 + self.num_players - 1
-        self.action_space = spaces.Discrete(self.num_actions_for_one_player ** num_players)
+        self.action_space = spaces.Discrete(
+            self.num_actions_for_one_player ** num_players)
         self.observation_space = spaces.Box(
             np.zeros((height, width, 2 * num_players + 1), dtype=bool),
             np.ones((height, width, 2 * num_players + 1), dtype=bool),
@@ -46,18 +48,23 @@ class DeepSoccer(gym.Env):
 
         State of shape H*W*(2 * number of players + 1(ball))
         '''
-        self.state = np.zeros((self.height, self.width, 2 * self.num_players + 1), dtype=bool)
+        self.state = np.zeros(
+            (self.height, self.width, 2 * self.num_players + 1), dtype=bool)
         # 1 Put players
-        player_locations = self.np_random.randint(0, self.height * (self.width // 2), 2 * self.num_players)
-        for player, loc in enumerate(player_locations):
+        player_locations = self.np_random.randint(
+            0, self.height * (self.width // 2), 2 * self.num_players)
+        for player in range(2 * self.num_players):
             if player < self.num_players:
-                # team 0 randomly on left half field
-                self.state[loc % self.height, loc // self.height, player] = 1
+                # team 0 on left half field
+                self.state[(player + 1) * (self.height - 1) //
+                           (self.num_players + 1), self.width // 4, player] = 1
             else:
-                # team 1 randomly on right half field
-                self.state[loc % self.height, self.width - 1 - loc // self.height, player] = 1
+                # team 1 on right half field
+                self.state[(player - self.num_players + 1) * (self.height - 1) //
+                           (self.num_players + 1), self.width - 1 - self.width // 4, player] = 1
         # 2 Put the ball in the middle
         self.state[self.height // 2, self.width // 2, -1] = 1
+        self.step_in_episode = 0
         return self.state
 
     def _step(self, action):
@@ -67,9 +74,10 @@ class DeepSoccer(gym.Env):
         # 2 Determine who the ball will go with
         #   Get all players standing at the ball's location
         players_at_ball = [player for player in range(2 * self.num_players)
-                                  if self.state[ball_x, ball_y, player]]
+                           if self.state[ball_x, ball_y, player]]
         #   The ball will go with this guy
-        player_with_ball = self.np_random.choice(players_at_ball) if players_at_ball != [] else None
+        player_with_ball = self.np_random.choice(
+            players_at_ball) if players_at_ball != [] else None
 
         # 3 Step the players, for team 0 and team 1
         #   During this process, the ball's owner may change
@@ -91,6 +99,12 @@ class DeepSoccer(gym.Env):
             done = True
         if new_ball_y == self.width - 1 and abs(new_ball_x - (self.height - 1) / 2) < 2:
             reward = 1.0
+            done = True
+
+        # Too many steps. Draw
+        self.step_in_episode += 1
+        if self.step_in_episode >= self.MAX_STEPS_IN_ONE_EPISODE:
+            reward = 0.0
             done = True
 
         return self.state, reward, done, {}
@@ -138,14 +152,20 @@ class DeepSoccer(gym.Env):
         Blue for team B
         '''
         rendered_rgb = np.zeros([self.height, self.width, 3])
-        rendered_rgb[:, :, 0]= np.sum(self.state[:, :, :self.num_players], axis=2)
-        rendered_rgb[:, :, 1]= self.state[:, :, -1]
-        rendered_rgb[:, :, 2]= np.sum(self.state[:, :, self.num_players:-1], axis=2)
+        rendered_rgb[:, :, 0] = np.sum(
+            self.state[:, :, :self.num_players], axis=2)
+        rendered_rgb[:, :, 1] = self.state[:, :, -1]
+        rendered_rgb[:, :, 2] = np.sum(
+            self.state[:, :, self.num_players:-1], axis=2)
+        # show goal
+        rendered_rgb[int(np.floor((self.height - 1) / 2) - 1):1+int(np.ceil((self.height - 1) / 2 + 1)), 0, :] += 0.2
+        rendered_rgb[int(np.floor((self.height - 1) / 2) - 1):1+int(np.ceil((self.height - 1) / 2 + 1)), -1, :] += 0.2
         rendered_rgb /= np.max(rendered_rgb)
         # float to uint8
         rendered_rgb = (rendered_rgb * 255).round()
         # Amplifying the image
-        rendered_rgb = np.kron(rendered_rgb, np.ones((16, 16, 1))).astype(np.uint8)
+        rendered_rgb = np.kron(rendered_rgb, np.ones(
+            (16, 16, 1))).astype(np.uint8)
         return rendered_rgb
 
     def _in_board(self, x, y):
@@ -157,6 +177,7 @@ class DeepSoccer(gym.Env):
         return np.unravel_index(np.argmax(arr), arr.shape)
 
     MAX_PASSING_DISTANCE = 5
+
     def _trajectory_clear(self, holder, target):
         '''To see if people or ball on the line between the two player.
 
