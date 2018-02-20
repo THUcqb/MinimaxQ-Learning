@@ -117,7 +117,7 @@ def get_env(env_id, seed):
     set_global_seeds(seed)
     env.seed(seed)
 
-    expt_dir = '/tmp/deepsoccer_Q/'
+    expt_dir = '/tmp/deepsoccer/'
     env = wrappers.Monitor(env, osp.join(expt_dir, "gym"), force=True)
     # env = wrap_deepmind(env)
 
