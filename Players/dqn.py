@@ -5,9 +5,11 @@ import numpy as np
 import random
 import tensorflow as tf
 import tensorflow.contrib.layers as layers
+from tensorflow.python.platform import flags
 from collections import namedtuple
 from .dqn_utils import *
 
+FLAGS = flags.FLAGS
 OptimizerSpec = namedtuple(
     "OptimizerSpec", ["constructor", "kwargs", "lr_schedule"])
 
@@ -90,6 +92,9 @@ def learn(env,
         img_h, img_w, img_c = env.observation_space.shape
         input_shape = (img_h, img_w, frame_history_len * img_c)
     num_actions = env.action_space.n
+    num_actions_per_agent = int(np.sqrt(num_actions))
+    num_actions_0 = num_actions if FLAGS.agents[0] == 'M' else num_actions_per_agent
+    num_actions_1 = num_actions if FLAGS.agents[1] == 'M' else num_actions_per_agent
 
     # set up placeholders
     # placeholder for current observation (or state)
@@ -130,18 +135,31 @@ def learn(env,
     ######
 
     # LHS
-    q = q_func(obs_t_float, num_actions, scope="q_func", reuse=False)
+    q = q_func(obs_t_float, num_actions_0, scope="q_func", reuse=False)
     q_func_vars = tf.get_collection(
         tf.GraphKeys.GLOBAL_VARIABLES, scope="q_func")
-    # RHS (bootstrapping) using target q to mitigate the max noise problem
-    target_q = q_func(obs_tp1_float, num_actions,
+    # RHS (bootstrapping) using target q to help converging
+    target_q = q_func(obs_tp1_float, num_actions_0,
                       scope="target_q_func", reuse=False)
     target_q_func_vars = tf.get_collection(
         tf.GraphKeys.GLOBAL_VARIABLES, scope="target_q_func")
-    # Choose the corresponding q value of the action
-    q_act = tf.reduce_sum(q * tf.one_hot(act_t_ph, num_actions), axis=1)
-    q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
-        gamma * tf.reduce_max(target_q, axis=1)
+    if FLAGS.agents[0] == 'M':
+        # Choose the corresponding minimax q value of the action
+        q_act = tf.reduce_sum(q * tf.one_hot(act_t_ph, num_actions), axis=1)
+        # Reshape to look like a matrix game
+        q = tf.reshape(q, [-1, num_actions_per_agent, num_actions_per_agent])
+        target_q = tf.reshape(
+            target_q, [-1, num_actions_per_agent, num_actions_per_agent])
+        # Use max min / linear programming
+        # TODO use linear programming
+        q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
+            gamma * tf.reduce_max(tf.reduce_min(target_q, axis=2), axis=1)
+    else:
+        # Choose the corresponding q value of the action
+        q_act = tf.reduce_sum(q * tf.one_hot(act_t_ph % num_actions_per_agent, num_actions_per_agent), axis=1)
+        q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
+            gamma * tf.reduce_max(target_q, axis=1)
+
     # Bellman error
     total_error = tf.nn.l2_loss(q_act - q_look_ahead) / batch_size
 
@@ -161,6 +179,37 @@ def learn(env,
         update_target_fn.append(var_target.assign(var))
     update_target_fn = tf.group(*update_target_fn)
 
+    if FLAGS.agents[1] == 'M' or FLAGS.agents[1] == 'Q':
+        # Agent 1 (opponent)
+        opp_q = q_func(obs_t_float, num_actions_1, scope="opp_q_func", reuse=False)
+        opp_q_func_vars = tf.get_collection(
+            tf.GraphKeys.GLOBAL_VARIABLES, scope="opp_q_func")
+        opp_target_q = q_func(obs_tp1_float, num_actions_1,
+                          scope="opp_target_q_func", reuse=False)
+        opp_target_q_func_vars = tf.get_collection(
+            tf.GraphKeys.GLOBAL_VARIABLES, scope="opp_target_q_func")
+        if FLAGS.agents[1] == 'M':
+            opp_q_act = tf.reduce_sum(opp_q * tf.one_hot(act_t_ph, num_actions), axis=1)
+            opp_q = tf.reshape(opp_q, [-1, num_actions_per_agent, num_actions_per_agent])
+            opp_target_q = tf.reshape(
+                opp_target_q, [-1, num_actions_per_agent, num_actions_per_agent])
+            opp_q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
+                gamma * tf.reduce_max(tf.reduce_min(opp_target_q, axis=2), axis=1)
+        else:
+            opp_q_act = tf.reduce_sum(opp_q * tf.one_hot(act_t_ph // num_actions_per_agent, num_actions_per_agent), axis=1)
+            opp_q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
+                gamma * tf.reduce_max(opp_target_q, axis=1)
+        opp_total_error = tf.nn.l2_loss(opp_q_act - opp_q_look_ahead) / batch_size
+        opp_optimizer = optimizer_spec.constructor(
+            learning_rate=learning_rate, **optimizer_spec.kwargs)
+        opp_train_fn = minimize_and_clip(opp_optimizer, opp_total_error,
+                                     var_list=opp_q_func_vars, clip_val=grad_norm_clipping)
+        opp_update_target_fn = []
+        for var, var_target in zip(sorted(opp_q_func_vars,        key=lambda v: v.name),
+                                   sorted(opp_target_q_func_vars, key=lambda v: v.name)):
+            opp_update_target_fn.append(var_target.assign(var))
+        opp_update_target_fn = tf.group(*opp_update_target_fn)
+    
     # construct the replay buffer
     replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
 
@@ -218,9 +267,28 @@ def learn(env,
             recent_obs = np.expand_dims(
                 replay_buffer.encode_recent_observation(), axis=0)
             q_values = session.run(q, feed_dict={obs_t_ph: recent_obs})
-            action = np.argmax(np.squeeze(q_values))
+            if FLAGS.agents[1] in ['M', 'Q']:
+                opp_q_values = session.run(opp_q, feed_dict={obs_t_ph: recent_obs})
+            # Use policy, FLAGS.agents
+            # Agent 0
+            action = 0
+            if FLAGS.agents[0] == 'M':
+                # TODO linear prog
+                action += np.argmax(np.min(np.squeeze(q_values), axis=1))
+            else:
+                action += np.argmax(np.squeeze(q_values))
+            # Agent 1
+            if FLAGS.agents[1] == 'M':
+                # TODO linear prog
+                action += num_actions_per_agent * np.argmax(np.min(np.squeeze(opp_q_values), axis=1))
+            elif FLAGS.agents[1] == 'Q':
+                action += num_actions_per_agent * np.argmax(np.squeeze(opp_q_values))
+            else:
+                action += num_actions_per_agent * np.random.choice(num_actions_per_agent)
         else:
-            action = np.random.choice(num_actions)
+            # Random for agent 0 and agent 1
+            action = np.random.choice(num_actions_per_agent) + \
+                num_actions_per_agent * np.random.choice(num_actions_per_agent)
 
         last_obs, reward, done, info = env.step(action)
         if done:
@@ -286,19 +354,34 @@ def learn(env,
                 model_initialized = True
 
             # c
-            session.run(train_fn, {
-                obs_t_ph: obs_t_batch,
-                act_t_ph: act_t_batch,
-                rew_t_ph: rew_t_batch,
-                obs_tp1_ph: obs_tp1_batch,
-                done_mask_ph: done_mask,
-                learning_rate: optimizer_spec.lr_schedule.value(t)
-            })
+            # If agent 1 is in challenger mode,
+            # fix the challenged agent 0 aftr 5e6 iters.
+            if not (len(FLAGS.agents) == 3 and t > 5e6):
+                session.run(train_fn, {
+                    obs_t_ph: obs_t_batch,
+                    act_t_ph: act_t_batch,
+                    rew_t_ph: rew_t_batch,
+                    obs_tp1_ph: obs_tp1_batch,
+                    done_mask_ph: done_mask,
+                    learning_rate: optimizer_spec.lr_schedule.value(t)
+                })
+            if FLAGS.agents[1] in ['M', 'Q']:
+                session.run(opp_train_fn, {
+                    obs_t_ph: obs_t_batch,
+                    act_t_ph: act_t_batch,
+                    rew_t_ph: -rew_t_batch,
+                    obs_tp1_ph: obs_tp1_batch,
+                    done_mask_ph: done_mask,
+                    learning_rate: optimizer_spec.lr_schedule.value(t)
+                })
             num_param_updates += 1
 
             # d
             if num_param_updates % target_update_freq == 0:
-                session.run(update_target_fn)
+                if not (len(FLAGS.agents) == 3 and t > 5e6):
+                    session.run(update_target_fn)
+                if FLAGS.agents[1] in ['M', 'Q']:
+                    session.run(opp_update_target_fn)
 
             #####
 
@@ -318,3 +401,4 @@ def learn(env,
             print("exploration %f" % exploration.value(t))
             print("learning_rate %f" % optimizer_spec.lr_schedule.value(t))
             sys.stdout.flush()
+
