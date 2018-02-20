@@ -183,7 +183,7 @@ def learn(env,
     opp_target_q_func_vars = tf.get_collection(
         tf.GraphKeys.GLOBAL_VARIABLES, scope="opp_target_q_func")
     opp_q_act = tf.reduce_sum(opp_q * tf.one_hot(act_t_ph, num_actions), axis=1)
-    opp_q = tf.reshape(q, [-1, num_actions_one_agent, num_actions_one_agent])
+    opp_q = tf.reshape(opp_q, [-1, num_actions_one_agent, num_actions_one_agent])
     opp_target_q = tf.reshape(
         opp_target_q, [-1, num_actions_one_agent, num_actions_one_agent])
     opp_q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
@@ -358,13 +358,13 @@ def learn(env,
         episode_rewards = get_wrapper_by_name(
             env, "Monitor").get_episode_rewards()
         if len(episode_rewards) > 0:
-            mean_episode_reward = np.mean(episode_rewards[-100:])
-        if len(episode_rewards) > 100:
+            mean_episode_reward = np.mean(episode_rewards[-1000:])
+        if len(episode_rewards) > 1000:
             best_mean_episode_reward = max(
                 best_mean_episode_reward, mean_episode_reward)
         if t % LOG_EVERY_N_STEPS == 0 and model_initialized:
             print("Timestep %d" % (t,))
-            print("mean reward (100 episodes) %f" % mean_episode_reward)
+            print("mean reward (1000 episodes) %f" % mean_episode_reward)
             print("best mean reward %f" % best_mean_episode_reward)
             print("episodes %d" % len(episode_rewards))
             print("exploration %f" % exploration.value(t))

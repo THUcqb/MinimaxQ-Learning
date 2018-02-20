@@ -32,14 +32,14 @@ def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
 
 
 def deepsoccer_minimaxq_model(img_in, num_actions, scope, reuse=False):
-    '''Fully connected: (H*W*(2N+1)) -> 512 -> 512 -> (5+N-1)^N X (5+N-1)^N'''
+    '''Fully connected: (H*W*(2N+1)) -> 512 -> 256 -> (5+N-1)^N X (5+N-1)^N'''
     with tf.variable_scope(scope, reuse=reuse):
         out = layers.flatten(img_in)
         with tf.variable_scope("action_value"):
             out = layers.fully_connected(
                 out, num_outputs=512,         activation_fn=tf.nn.relu)
             out = layers.fully_connected(
-                out, num_outputs=512,         activation_fn=tf.nn.relu)
+                out, num_outputs=256,         activation_fn=tf.nn.relu)
             out = layers.fully_connected(
                 out, num_outputs=num_actions, activation_fn=None)
         return out
