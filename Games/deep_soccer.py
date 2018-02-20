@@ -28,11 +28,11 @@ class DeepSoccer(gym.Env):
         self.num_players = num_players
         self.height = height
         self.width = width
-        self.MAX_STEPS_IN_ONE_EPISODE = self.height * self.width
+        self.MAX_STEPS_IN_ONE_EPISODE = height * width
         # 1 stand, 4 direction, (N-1)teammates
-        self.num_actions_for_one_player = 1 + 4 + self.num_players - 1
-        self.action_space = spaces.Discrete(
-            self.num_actions_for_one_player ** num_players)
+        self.num_actions_for_one_player = 1 + 4 + num_players - 1
+        self.num_actions_for_one_team = self.num_actions_for_one_player ** num_players
+        self.action_space = spaces.Discrete(self.num_actions_for_one_team ** 2)
         self.observation_space = spaces.Box(
             np.zeros((height, width, 2 * num_players + 1), dtype=bool),
             np.ones((height, width, 2 * num_players + 1), dtype=bool),
@@ -81,10 +81,8 @@ class DeepSoccer(gym.Env):
 
         # 3 Step the players, for team 0 and team 1
         #   During this process, the ball's owner may change
-        #   Take random action for team 1 in Q-learning.
-        player_with_ball = self._step_team(0, action, player_with_ball)
-        random_action = self.np_random.choice(self.action_space.n)
-        player_with_ball = self._step_team(1, random_action, player_with_ball)
+        player_with_ball = self._step_team(0, action % self.num_actions_for_one_team, player_with_ball)
+        player_with_ball = self._step_team(1, action // self.num_actions_for_one_team, player_with_ball)
 
         # 4 Step the ball
         if player_with_ball != None:

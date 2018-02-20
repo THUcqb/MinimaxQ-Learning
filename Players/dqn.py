@@ -90,6 +90,7 @@ def learn(env,
         img_h, img_w, img_c = env.observation_space.shape
         input_shape = (img_h, img_w, frame_history_len * img_c)
     num_actions = env.action_space.n
+    num_actions_one_agent = int(np.sqrt(num_actions))
 
     # set up placeholders
     # placeholder for current observation (or state)
@@ -133,15 +134,27 @@ def learn(env,
     q = q_func(obs_t_float, num_actions, scope="q_func", reuse=False)
     q_func_vars = tf.get_collection(
         tf.GraphKeys.GLOBAL_VARIABLES, scope="q_func")
-    # RHS (bootstrapping) using target q to mitigate the max noise problem
+    # RHS (bootstrapping) using target q to help converging
     target_q = q_func(obs_tp1_float, num_actions,
                       scope="target_q_func", reuse=False)
     target_q_func_vars = tf.get_collection(
         tf.GraphKeys.GLOBAL_VARIABLES, scope="target_q_func")
-    # Choose the corresponding q value of the action
+    # Choose the corresponding minimax q value of the action
     q_act = tf.reduce_sum(q * tf.one_hot(act_t_ph, num_actions), axis=1)
+
+    # Reshape to look like a matrix game
+    q = tf.reshape(q, [-1, num_actions_one_agent, num_actions_one_agent])
+    target_q = tf.reshape(
+        target_q, [-1, num_actions_one_agent, num_actions_one_agent])
+    # Use max min / linear programming
+
+    # Use max min
     q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
-        gamma * tf.reduce_max(target_q, axis=1)
+        gamma * tf.reduce_max(tf.reduce_min(target_q, axis=2), axis=1)
+    # TODO use linear programming
+    # q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
+    # gamma * tf.reduce_max(target_q, axis=1)
+
     # Bellman error
     total_error = tf.nn.l2_loss(q_act - q_look_ahead) / batch_size
 
@@ -218,9 +231,13 @@ def learn(env,
             recent_obs = np.expand_dims(
                 replay_buffer.encode_recent_observation(), axis=0)
             q_values = session.run(q, feed_dict={obs_t_ph: recent_obs})
-            action = np.argmax(np.squeeze(q_values))
+            # Use max min for agent 0, random for agent 1
+            action = np.argmax(np.squeeze(np.min(q_values, axis=2))) + \
+                num_actions_one_agent * np.random.choice(num_actions_one_agent)
         else:
-            action = np.random.choice(num_actions)
+            # Random for agent 0 and agent 1
+            action = np.random.choice(num_actions_one_agent) + \
+                num_actions_one_agent * np.random.choice(num_actions_one_agent)
 
         last_obs, reward, done, info = env.step(action)
         if done:
