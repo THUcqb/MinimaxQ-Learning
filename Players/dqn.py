@@ -174,6 +174,31 @@ def learn(env,
         update_target_fn.append(var_target.assign(var))
     update_target_fn = tf.group(*update_target_fn)
 
+    # Agent 1 (opponent)
+    opp_q = q_func(obs_t_float, num_actions, scope="opp_q_func", reuse=False)
+    opp_q_func_vars = tf.get_collection(
+        tf.GraphKeys.GLOBAL_VARIABLES, scope="opp_q_func")
+    opp_target_q = q_func(obs_tp1_float, num_actions,
+                      scope="opp_target_q_func", reuse=False)
+    opp_target_q_func_vars = tf.get_collection(
+        tf.GraphKeys.GLOBAL_VARIABLES, scope="opp_target_q_func")
+    opp_q_act = tf.reduce_sum(opp_q * tf.one_hot(act_t_ph, num_actions), axis=1)
+    opp_q = tf.reshape(q, [-1, num_actions_one_agent, num_actions_one_agent])
+    opp_target_q = tf.reshape(
+        opp_target_q, [-1, num_actions_one_agent, num_actions_one_agent])
+    opp_q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
+        gamma * tf.reduce_max(tf.reduce_min(opp_target_q, axis=2), axis=1)
+    opp_total_error = tf.nn.l2_loss(opp_q_act - opp_q_look_ahead) / batch_size
+    opp_optimizer = optimizer_spec.constructor(
+        learning_rate=learning_rate, **optimizer_spec.kwargs)
+    opp_train_fn = minimize_and_clip(opp_optimizer, opp_total_error,
+                                 var_list=opp_q_func_vars, clip_val=grad_norm_clipping)
+    opp_update_target_fn = []
+    for var, var_target in zip(sorted(opp_q_func_vars,        key=lambda v: v.name),
+                               sorted(opp_target_q_func_vars, key=lambda v: v.name)):
+        opp_update_target_fn.append(var_target.assign(var))
+    opp_update_target_fn = tf.group(*opp_update_target_fn)
+    
     # construct the replay buffer
     replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
 
@@ -231,9 +256,10 @@ def learn(env,
             recent_obs = np.expand_dims(
                 replay_buffer.encode_recent_observation(), axis=0)
             q_values = session.run(q, feed_dict={obs_t_ph: recent_obs})
+            opp_q_values = session.run(opp_q, feed_dict={obs_t_ph: recent_obs})
             # Use max min for agent 0, random for agent 1
             action = np.argmax(np.squeeze(np.min(q_values, axis=2))) + \
-                num_actions_one_agent * np.random.choice(num_actions_one_agent)
+                num_actions_one_agent * np.argmax(np.squeeze(np.min(opp_q_values, axis=2)))
         else:
             # Random for agent 0 and agent 1
             action = np.random.choice(num_actions_one_agent) + \
@@ -311,11 +337,20 @@ def learn(env,
                 done_mask_ph: done_mask,
                 learning_rate: optimizer_spec.lr_schedule.value(t)
             })
+            session.run(opp_train_fn, {
+                obs_t_ph: obs_t_batch,
+                act_t_ph: act_t_batch,
+                rew_t_ph: -rew_t_batch,
+                obs_tp1_ph: obs_tp1_batch,
+                done_mask_ph: done_mask,
+                learning_rate: optimizer_spec.lr_schedule.value(t)
+            })
             num_param_updates += 1
 
             # d
             if num_param_updates % target_update_freq == 0:
                 session.run(update_target_fn)
+                session.run(opp_update_target_fn)
 
             #####
 
