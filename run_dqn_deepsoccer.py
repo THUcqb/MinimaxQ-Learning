@@ -1,20 +1,22 @@
 import argparse
 import gym
 from gym import wrappers
+from gym.envs.registration import register
 import os.path as osp
 import random
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.layers as layers
-
+from tensorflow.python.platform import flags
 from Players import dqn
 from Players.dqn_utils import *
-from gym.envs.registration import register
+
 register(
     id='DeepSoccer-v0',
     entry_point='Games.deep_soccer:DeepSoccer',
 )
-# from atari_wrappers import *
+flags.DEFINE_string('agents', 'QR',
+                    'QR, QQ, MR, MM, MQ, QQC, MQC, QMC, MMC')
 
 
 def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
@@ -23,23 +25,9 @@ def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
         out = layers.flatten(img_in)
         with tf.variable_scope("action_value"):
             out = layers.fully_connected(
-                out, num_outputs=512,         activation_fn=tf.nn.relu)
+                out, num_outputs=512, activation_fn=tf.nn.relu)
             out = layers.fully_connected(
-                out, num_outputs=256,         activation_fn=tf.nn.relu)
-            out = layers.fully_connected(
-                out, num_outputs=num_actions, activation_fn=None)
-        return out
-
-
-def deepsoccer_minimaxq_model(img_in, num_actions, scope, reuse=False):
-    '''Fully connected: (H*W*(2N+1)) -> 512 -> 256 -> (5+N-1)^N X (5+N-1)^N'''
-    with tf.variable_scope(scope, reuse=reuse):
-        out = layers.flatten(img_in)
-        with tf.variable_scope("action_value"):
-            out = layers.fully_connected(
-                out, num_outputs=512,         activation_fn=tf.nn.relu)
-            out = layers.fully_connected(
-                out, num_outputs=256,         activation_fn=tf.nn.relu)
+                out, num_outputs=256, activation_fn=tf.nn.relu)
             out = layers.fully_connected(
                 out, num_outputs=num_actions, activation_fn=None)
         return out
@@ -79,7 +67,7 @@ def deepsoccer_q_learn(env, session, num_timesteps):
 
     dqn.learn(
         env,
-        q_func=deepsoccer_minimaxq_model,
+        q_func=deepsoccer_q_model,
         optimizer_spec=optimizer,
         session=session,
         exploration=exploration_schedule,
