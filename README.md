@@ -39,4 +39,4 @@ python run_dqn_deepsoccer.py --agents MQC
 ```
 
 ### Results
-- Videos in `/tmp/deepsoccer/gym`.
+- Videos in `/tmp/deepsoccerXX/gym`.

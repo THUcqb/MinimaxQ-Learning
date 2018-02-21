@@ -153,7 +153,7 @@ def learn(env,
         # Use max min / linear programming
         # TODO use linear programming
         q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
-            gamma * tf.reduce_max(tf.reduce_min(target_q, axis=2), axis=1)
+            gamma * tf.reduce_max(tf.reduce_min(target_q, axis=1), axis=1)
     else:
         # Choose the corresponding q value of the action
         q_act = tf.reduce_sum(q * tf.one_hot(act_t_ph % num_actions_per_agent, num_actions_per_agent), axis=1)
@@ -274,7 +274,7 @@ def learn(env,
             action = 0
             if FLAGS.agents[0] == 'M':
                 # TODO linear prog
-                action += np.argmax(np.min(np.squeeze(q_values), axis=1))
+                action += np.argmax(np.min(np.squeeze(q_values), axis=0))
             else:
                 action += np.argmax(np.squeeze(q_values))
             # Agent 1
