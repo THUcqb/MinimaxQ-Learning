@@ -8,6 +8,7 @@ import tensorflow.contrib.layers as layers
 from tensorflow.python.platform import flags
 from collections import namedtuple
 from .dqn_utils import *
+from scipy.optimize import linprog
 
 FLAGS = flags.FLAGS
 OptimizerSpec = namedtuple(
@@ -105,6 +106,8 @@ def learn(env,
     rew_t_ph = tf.placeholder(tf.float32, [None])
     # placeholder for next observation (or state)
     obs_tp1_ph = tf.placeholder(tf.uint8, [None] + list(input_shape))
+    # placeholder for current policy
+    pi_t_ph = tf.placeholder(tf.float32, [None, num_actions_per_agent])
     # placeholder for end of episode mask
     # this value is 1 if the next state corresponds to the end of an episode,
     # in which case there is no Q-value at the next state; at the end of an
@@ -153,10 +156,12 @@ def learn(env,
         # Use max min / linear programming
         # TODO use linear programming
         q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
-            gamma * tf.reduce_max(tf.reduce_min(target_q, axis=1), axis=1)
+            gamma * tf.reduce_min(tf.squeeze(tf.matmul(target_q,
+                                                       tf.expand_dims(pi_t_ph, axis=-1))), axis=1)
     else:
         # Choose the corresponding q value of the action
-        q_act = tf.reduce_sum(q * tf.one_hot(act_t_ph % num_actions_per_agent, num_actions_per_agent), axis=1)
+        q_act = tf.reduce_sum(
+            q * tf.one_hot(act_t_ph % num_actions_per_agent, num_actions_per_agent), axis=1)
         q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
             gamma * tf.reduce_max(target_q, axis=1)
 
@@ -181,35 +186,41 @@ def learn(env,
 
     if FLAGS.agents[1] == 'M' or FLAGS.agents[1] == 'Q':
         # Agent 1 (opponent)
-        opp_q = q_func(obs_t_float, num_actions_1, scope="opp_q_func", reuse=False)
+        opp_q = q_func(obs_t_float, num_actions_1,
+                       scope="opp_q_func", reuse=False)
         opp_q_func_vars = tf.get_collection(
             tf.GraphKeys.GLOBAL_VARIABLES, scope="opp_q_func")
         opp_target_q = q_func(obs_tp1_float, num_actions_1,
-                          scope="opp_target_q_func", reuse=False)
+                              scope="opp_target_q_func", reuse=False)
         opp_target_q_func_vars = tf.get_collection(
             tf.GraphKeys.GLOBAL_VARIABLES, scope="opp_target_q_func")
         if FLAGS.agents[1] == 'M':
-            opp_q_act = tf.reduce_sum(opp_q * tf.one_hot(act_t_ph, num_actions), axis=1)
-            opp_q = tf.reshape(opp_q, [-1, num_actions_per_agent, num_actions_per_agent])
+            opp_q_act = tf.reduce_sum(
+                opp_q * tf.one_hot(act_t_ph, num_actions), axis=1)
+            opp_q = tf.reshape(
+                opp_q, [-1, num_actions_per_agent, num_actions_per_agent])
             opp_target_q = tf.reshape(
                 opp_target_q, [-1, num_actions_per_agent, num_actions_per_agent])
             opp_q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
-                gamma * tf.reduce_max(tf.reduce_min(opp_target_q, axis=2), axis=1)
+                gamma * \
+                tf.reduce_max(tf.reduce_min(opp_target_q, axis=2), axis=1)
         else:
-            opp_q_act = tf.reduce_sum(opp_q * tf.one_hot(act_t_ph // num_actions_per_agent, num_actions_per_agent), axis=1)
+            opp_q_act = tf.reduce_sum(
+                opp_q * tf.one_hot(act_t_ph // num_actions_per_agent, num_actions_per_agent), axis=1)
             opp_q_look_ahead = rew_t_ph + (1 - done_mask_ph) * \
                 gamma * tf.reduce_max(opp_target_q, axis=1)
-        opp_total_error = tf.nn.l2_loss(opp_q_act - opp_q_look_ahead) / batch_size
+        opp_total_error = tf.nn.l2_loss(
+            opp_q_act - opp_q_look_ahead) / batch_size
         opp_optimizer = optimizer_spec.constructor(
             learning_rate=learning_rate, **optimizer_spec.kwargs)
         opp_train_fn = minimize_and_clip(opp_optimizer, opp_total_error,
-                                     var_list=opp_q_func_vars, clip_val=grad_norm_clipping)
+                                         var_list=opp_q_func_vars, clip_val=grad_norm_clipping)
         opp_update_target_fn = []
         for var, var_target in zip(sorted(opp_q_func_vars,        key=lambda v: v.name),
                                    sorted(opp_target_q_func_vars, key=lambda v: v.name)):
             opp_update_target_fn.append(var_target.assign(var))
         opp_update_target_fn = tf.group(*opp_update_target_fn)
-    
+
     # construct the replay buffer
     replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
 
@@ -268,7 +279,8 @@ def learn(env,
                 replay_buffer.encode_recent_observation(), axis=0)
             q_values = session.run(q, feed_dict={obs_t_ph: recent_obs})
             if FLAGS.agents[1] in ['M', 'Q']:
-                opp_q_values = session.run(opp_q, feed_dict={obs_t_ph: recent_obs})
+                opp_q_values = session.run(
+                    opp_q, feed_dict={obs_t_ph: recent_obs})
             # Use policy, FLAGS.agents
             # Agent 0
             action = 0
@@ -280,11 +292,14 @@ def learn(env,
             # Agent 1
             if FLAGS.agents[1] == 'M':
                 # TODO linear prog
-                action += num_actions_per_agent * np.argmax(np.min(np.squeeze(opp_q_values), axis=1))
+                action += num_actions_per_agent * \
+                    np.argmax(np.min(np.squeeze(opp_q_values), axis=1))
             elif FLAGS.agents[1] == 'Q':
-                action += num_actions_per_agent * np.argmax(np.squeeze(opp_q_values))
+                action += num_actions_per_agent * \
+                    np.argmax(np.squeeze(opp_q_values))
             else:
-                action += num_actions_per_agent * np.random.choice(num_actions_per_agent)
+                action += num_actions_per_agent * \
+                    np.random.choice(num_actions_per_agent)
         else:
             # Random for agent 0 and agent 1
             action = np.random.choice(num_actions_per_agent) + \
@@ -357,11 +372,38 @@ def learn(env,
             # If agent 1 is in challenger mode,
             # fix the challenged agent 0 aftr 5e6 iters.
             if not (len(FLAGS.agents) == 3 and t > 5e6):
+                pi_t_batch = np.zeros((batch_size, num_actions_per_agent))
+                if FLAGS.agents[0] == 'M':
+                    # Prepare Q values to do linear programming
+                    q_values = session.run(
+                        q, feed_dict={obs_t_ph: obs_t_batch})
+                    for i in range(batch_size):
+                    #     c = np.zeros(num_actions_per_agent + 1)
+                    #     c[0] = -1
+                    #     A_ub = np.ones(
+                    #         (num_actions_per_agent, num_actions_per_agent + 1))
+                    #     A_ub[:, 1:] = -q_values[i]
+                    #     b_ub = np.zeros(num_actions_per_agent)
+                    #     A_eq = np.ones((1, num_actions_per_agent + 1))
+                    #     A_eq[0, 0] = 0
+                    #     b_eq = [1]
+                    #     bounds = ((None, None),) + ((0, 1),) * \
+                    #         num_actions_per_agent
+                    #     res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq,
+                    #                   b_eq=b_eq, bounds=bounds)
+                    # if res.success:
+                    #     pi_t_batch[i] = res.x[1:]
+                    # else:
+                    #     # use max min instead
+                    #     # TODO inspect how many lp failed
+                        pi_t_batch[i][np.argmax(np.min(q_values[i], axis=0))] = 1
+
                 session.run(train_fn, {
                     obs_t_ph: obs_t_batch,
                     act_t_ph: act_t_batch,
                     rew_t_ph: rew_t_batch,
                     obs_tp1_ph: obs_tp1_batch,
+                    pi_t_ph: pi_t_batch,
                     done_mask_ph: done_mask,
                     learning_rate: optimizer_spec.lr_schedule.value(t)
                 })
@@ -401,4 +443,3 @@ def learn(env,
             print("exploration %f" % exploration.value(t))
             print("learning_rate %f" % optimizer_spec.lr_schedule.value(t))
             sys.stdout.flush()
-
