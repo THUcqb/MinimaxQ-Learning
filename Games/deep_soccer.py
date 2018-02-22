@@ -62,8 +62,11 @@ class DeepSoccer(gym.Env):
                 # team 1 on right half field
                 self.state[(player - self.num_players + 1) * (self.height - 1) //
                            (self.num_players + 1), self.width - 1 - self.width // 4, player] = 1
+        # 2 Give the ball to one player
+        player_with_ball = self.np_random.choice(2 * self.num_players)
+        self.state[:, :, -1] = self.state[:, :, player_with_ball]
         # 2 Put the ball in the middle
-        self.state[self.height // 2, self.width // 2, -1] = 1
+        # self.state[self.height // 2, self.width // 2, -1] = 1
         self.step_in_episode = 0
         return self.state
 
@@ -163,7 +166,7 @@ class DeepSoccer(gym.Env):
         rendered_rgb = (rendered_rgb * 255).round()
         # Amplifying the image
         rendered_rgb = np.kron(rendered_rgb, np.ones(
-            (16, 16, 1))).astype(np.uint8)
+            (24, 24, 1))).astype(np.uint8)
         return rendered_rgb
 
     def _in_board(self, x, y):

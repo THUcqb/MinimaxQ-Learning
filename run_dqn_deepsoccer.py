@@ -35,11 +35,11 @@ def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
 
 def deepsoccer_q_learn(env, session, num_timesteps):
     # This is just a rough estimate
-    num_iterations = float(num_timesteps) / 4.0
+    num_iterations = num_timesteps
 
     lr_multiplier = 1.0
     lr_schedule = PiecewiseSchedule([
-        (0,                   1e-4 * lr_multiplier),
+        (0, 1e-4 * lr_multiplier),
         (num_iterations / 10,
          1e-4 * lr_multiplier),
         (num_iterations / 2,
@@ -61,7 +61,7 @@ def deepsoccer_q_learn(env, session, num_timesteps):
         [
             (0, 1.0),
             (1e6, 0.1),
-            (num_iterations / 2, 0.01),
+            (num_iterations, 0.01),
         ], outside_value=0.01
     )
 
@@ -119,7 +119,7 @@ def get_env(env_id, seed):
     set_global_seeds(seed)
     env.seed(seed)
 
-    expt_dir = '/tmp/deepsoccer/'
+    expt_dir = '/tmp/deepsoccer' + flags.FLAGS.agents + '/'
     env = wrappers.Monitor(env, osp.join(expt_dir, "gym"), force=True)
     # env = wrap_deepmind(env)
 
@@ -132,7 +132,7 @@ def main():
     env = get_env('DeepSoccer-v0', seed)
     session = get_session()
     # TODO set proper timesteps
-    deepsoccer_q_learn(env, session, num_timesteps=1e7)
+    deepsoccer_q_learn(env, session, num_timesteps=2e6)
 
 
 if __name__ == "__main__":
