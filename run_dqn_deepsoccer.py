@@ -73,11 +73,11 @@ def deepsoccer_q_learn(env, session, num_timesteps):
         exploration=exploration_schedule,
         stopping_criterion=stopping_criterion,
         replay_buffer_size=1000000,
-        batch_size=32,
+        batch_size=64,
         gamma=0.99,
         learning_starts=50000,
         learning_freq=4,
-        frame_history_len=4,
+        frame_history_len=1,
         target_update_freq=10000,
         grad_norm_clipping=10
     )
