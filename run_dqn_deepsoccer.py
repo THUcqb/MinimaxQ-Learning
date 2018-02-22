@@ -16,7 +16,9 @@ register(
     entry_point='Games.deep_soccer:DeepSoccer',
 )
 flags.DEFINE_string('agents', 'QR',
-                    'QR, QQ, MR, MM, MQ, QQC, MQC, QMC, MMC')
+                    'RR, QR, QQ, MR, MM, MQ, ...')
+flags.DEFINE_bool('eval', True,
+                    'Use random policy and a Q-challenger to evaluate the first agent')
 
 
 def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
@@ -60,7 +62,7 @@ def deepsoccer_q_learn(env, session, num_timesteps):
     exploration_schedule = PiecewiseSchedule(
         [
             (0, 1.0),
-            (1e6, 0.1),
+            (num_iterations / 2, 0.1),
             (num_iterations, 0.01),
         ], outside_value=0.01
     )
@@ -71,7 +73,7 @@ def deepsoccer_q_learn(env, session, num_timesteps):
         optimizer_spec=optimizer,
         session=session,
         exploration=exploration_schedule,
-        stopping_criterion=stopping_criterion,
+        num_timesteps=int(num_timesteps),
         replay_buffer_size=1000000,
         batch_size=64,
         gamma=0.99,

@@ -19,7 +19,7 @@ def learn(env,
           optimizer_spec,
           session,
           exploration=LinearSchedule(1000000, 0.1),
-          stopping_criterion=None,
+          num_timesteps=1000000,
           replay_buffer_size=1000000,
           batch_size=64,
           gamma=0.99,
@@ -274,6 +274,10 @@ def learn(env,
         else:
             raise NotImplementedError
         agents[i].construct_model()
+    if FLAGS.eval:
+        random_challenger = RandomAgent(num_actions_per_agent, opponent=True)
+        q_challenger = QAgent(num_actions_per_agent, opponent=True, scope="chal")
+        q_challenger.construct_model()
 
     initialize_interdependent_variables(session, tf.global_variables())
 
@@ -281,18 +285,38 @@ def learn(env,
     # RUN ENV     #
     ###############
 
-    mean_episode_reward = -float('nan')
     best_mean_episode_reward = -float('inf')
     last_obs = env.reset()
     writer = tf.summary.FileWriter('logs/' + FLAGS.agents)
     summ_op = tf.summary.merge_all()
 
-    for t in itertools.count():
-        # 1. Check stopping criterion
-        if stopping_criterion is not None and stopping_criterion(env, t):
-            break
+    def log_progress(t, best_mean_episode_reward, offset=0):
+        LOG_EVERY_N_STEPS = 10000
+        PLOT_EVERY_N_STEPS = 1000
+        episode_rewards = get_wrapper_by_name(
+            env, "Monitor").get_episode_rewards()
+        mean_episode_reward = -float('nan')
+        if len(episode_rewards) > 0:
+            mean_episode_reward = np.mean(episode_rewards[-100:])
+        if len(episode_rewards) > 100:
+            best_mean_episode_reward = max(
+                best_mean_episode_reward, mean_episode_reward)
+        if t % PLOT_EVERY_N_STEPS == 0:
+            s = session.run(summ_op, feed_dict={mean_rew_ph: mean_episode_reward})
+            writer.add_summary(s, t + offset)
+            writer.flush()
+        if t % LOG_EVERY_N_STEPS == 0 and t >= learning_starts:
+            print("Timestep %d" % (t + offset,))
+            print("mean reward (100 episodes) %f" % mean_episode_reward)
+            print("best mean reward %f" % best_mean_episode_reward)
+            print("episodes %d" % len(episode_rewards))
+            print("exploration %f" % exploration.value(t))
+            print("learning_rate %f" % optimizer_spec.lr_schedule.value(t))
+            sys.stdout.flush()
+        return best_mean_episode_reward
 
-        # 2. Step the env and store the transition
+    for t in range(num_timesteps):
+        # 1. Step the env and store the transition
         ret = replay_buffer.store_frame(last_obs)
         eps = exploration.value(t)
 
@@ -309,7 +333,7 @@ def learn(env,
             last_obs = env.reset()
         replay_buffer.store_effect(ret, action, reward, done)
 
-        # 3. Perform experience replay and train the network.
+        # 2. Perform experience replay and train the network.
         # note that this is only done if the replay buffer contains enough samples
         # for us to learn something useful -- until then, the model will not be
         # initialized and random actions should be taken
@@ -320,25 +344,63 @@ def learn(env,
             for agent in agents:
                 agent.train_step(t)
 
-        # 4. Log progress
-        LOG_EVERY_N_STEPS = 10000
-        PLOT_EVERY_N_STEPS = 1000
-        episode_rewards = get_wrapper_by_name(
-            env, "Monitor").get_episode_rewards()
-        if len(episode_rewards) > 0:
-            mean_episode_reward = np.mean(episode_rewards[-100:])
-        if len(episode_rewards) > 100:
-            best_mean_episode_reward = max(
-                best_mean_episode_reward, mean_episode_reward)
-        if t % PLOT_EVERY_N_STEPS == 0:
-            s = session.run(summ_op, feed_dict={mean_rew_ph: mean_episode_reward})
-            writer.add_summary(s, t)
-            writer.flush()
-        if t % LOG_EVERY_N_STEPS == 0 and t >= learning_starts:
-            print("Timestep %d" % (t,))
-            print("mean reward (100 episodes) %f" % mean_episode_reward)
-            print("best mean reward %f" % best_mean_episode_reward)
-            print("episodes %d" % len(episode_rewards))
-            print("exploration %f" % exploration.value(t))
-            print("learning_rate %f" % optimizer_spec.lr_schedule.value(t))
-            sys.stdout.flush()
+        # 3
+        best_mean_episode_reward = log_progress(t, best_mean_episode_reward)
+
+    if FLAGS.eval:
+        def env_reset():
+            while True:
+                action = env.action_space.sample()
+                last_obs, reward, done, info = env.step(action)
+                if done:
+                    return env.reset()
+
+        def evaluate(agent, challenger, learn, name):
+            if learn:
+                last_obs = env_reset()
+                best_mean_episode_reward = -float('inf')
+                for t in range(num_timesteps):
+                    ret = replay_buffer.store_frame(last_obs)
+                    eps = exploration.value(t)
+
+                    recent_obs = np.expand_dims(replay_buffer.encode_recent_observation(), axis=0)
+                    action = agent.choose_action(recent_obs=recent_obs)
+                    if np.random.random() >= eps and t >= learning_starts:
+                        action += challenger.choose_action(recent_obs=recent_obs)
+                    else:
+                        action += challenger.random_action()
+
+                    last_obs, reward, done, info = env.step(action)
+                    if done:
+                        last_obs = env.reset()
+                    replay_buffer.store_effect(ret, action, reward, done)
+
+                    if (t >= learning_starts and
+                            t % learning_freq == 0 and
+                            replay_buffer.can_sample(batch_size)):
+                        challenger.train_step(t)
+                    best_mean_episode_reward = log_progress(t, best_mean_episode_reward, offset=num_timesteps)
+
+            last_obs = env_reset()
+            n_episodes = 0
+            EVAL_EPISODES = 5000
+            while n_episodes < EVAL_EPISODES:
+                ret = replay_buffer.store_frame(last_obs)
+                recent_obs = np.expand_dims(replay_buffer.encode_recent_observation(), axis=0)
+                action = agents[0].choose_action(recent_obs=recent_obs) + challenger.choose_action(recent_obs=recent_obs)
+                last_obs, reward, done, info = env.step(action)
+                if done:
+                    last_obs = env.reset()
+                    n_episodes += 1
+                replay_buffer.store_effect(ret, action, reward, done)
+            episode_rewards = get_wrapper_by_name(
+                env, "Monitor").get_episode_rewards()
+            print(FLAGS.agents + " vs %s: %g" % (name, np.mean(episode_rewards[-EVAL_EPISODES:])))
+
+        # Random challenger
+        replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
+        evaluate(agents[0], random_challenger, learn=False, name="random")
+
+        # Q challenger
+        replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
+        evaluate(agents[0], q_challenger, learn=True, name="q")
