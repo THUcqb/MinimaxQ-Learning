@@ -8,6 +8,7 @@ import tensorflow.contrib.layers as layers
 from tensorflow.python.platform import flags
 from collections import namedtuple
 from .dqn_utils import *
+from scipy.optimize import linprog
 
 FLAGS = flags.FLAGS
 OptimizerSpec = namedtuple(
@@ -103,6 +104,8 @@ def learn(env,
     rew_t_ph = tf.placeholder(tf.float32, [None])
     # placeholder for next observation (or state)
     obs_tp1_ph = tf.placeholder(tf.uint8, [None] + list(input_shape))
+    # place holder for current policy
+    pi_t_ph = tf.placeholder(tf.float32, [None, num_actions_per_agent])
     # placeholder for end of episode mask
     # this value is 1 if the next state corresponds to the end of an episode,
     # in which case there is no Q-value at the next state; at the end of an
@@ -233,12 +236,13 @@ def learn(env,
             # Reshape to look like a matrix game
             self.q = tf.reshape(self.q, [-1, self.num_actions, self.num_actions])
             target_q = tf.reshape(target_q, [-1, self.num_actions, self.num_actions])
+            if self.opponent:
+                self.q = tf.transpose(self.q, perm=[0, 2, 1])
+                self.target_q = tf.transpose(self.q, perm=[0, 2, 1])
+
             # Use min max as minimax
             # TODO use linear programming
-            if self.opponent:
-                q_look_ahead = rew_t_ph + (1 - done_mask_ph) * gamma * tf.reduce_max(tf.reduce_min(target_q, axis=2), axis=1)
-            else:
-                q_look_ahead = rew_t_ph + (1 - done_mask_ph) * gamma * tf.reduce_max(tf.reduce_min(target_q, axis=1), axis=1)
+            q_look_ahead = rew_t_ph + (1 - done_mask_ph) * gamma * tf.reduce_min(tf.squeeze(tf.matmul(target_q, tf.expand_dims(pi_t_ph, axis=-1))), axis=1)
 
             # Bellman error
             total_error = tf.nn.l2_loss(q_act - q_look_ahead) / batch_size
@@ -256,10 +260,55 @@ def learn(env,
 
         def choose_action(self, recent_obs):
             q_values = session.run(self.q, feed_dict={obs_t_ph: recent_obs})
+            pi_t = np.squeeze(self._choose_policy(q_values))
+            act = np.random.choice(a=range(self.num_actions), p=pi_t)
             if self.opponent:
-                return self.num_actions * np.argmax(np.min(np.squeeze(q_values), axis=1))
+                return self.num_actions * act
             else:
-                return np.argmax(np.min(np.squeeze(q_values), axis=0))
+                return act
+
+        def _choose_policy(self, q_values):
+            pi_t_batch = np.zeros((q_values.shape[0], num_actions_per_agent))
+            for i in range(q_values.shape[0]):
+                c = np.zeros(num_actions_per_agent + 1)
+                c[0] = -1
+                A_ub = np.ones((num_actions_per_agent, num_actions_per_agent + 1))
+                A_ub[:, 1:] = -q_values[i]
+                b_ub = np.zeros(num_actions_per_agent)
+                A_eq = np.ones((1, num_actions_per_agent + 1))
+                A_eq[0, 0] = 0
+                b_eq = [1]
+                bounds = ((None, None), ) + ((0, 1), ) * num_actions_per_agent
+                res = linprog(c, A_ub, b_ub, A_eq, b_eq, bounds)
+                if res.success:
+                    pi_t_batch[i] = res.x[1:]
+                else:
+                    # use max min
+                    # TODO inspect how many lp failed
+                    pi_t_batch[i][np.argmax(np.min(q_values[i], axis=0))]
+            return pi_t_batch
+
+        def train_step(self, t):
+            obs_t_batch, act_t_batch, rew_t_batch, obs_tp1_batch, done_mask = \
+                replay_buffer.sample(batch_size)
+            if self.opponent:
+                rew_t_batch = -rew_t_batch
+            q_values = session.run(self.q, feed_dict={obs_t_ph: obs_t_batch})
+            pi_t_batch = self._choose_policy(q_values)
+
+            session.run(self.train_fn, {
+                obs_t_ph: obs_t_batch,
+                act_t_ph: act_t_batch,
+                rew_t_ph: rew_t_batch,
+                obs_tp1_ph: obs_tp1_batch,
+                pi_t_ph: pi_t_batch,
+                done_mask_ph: done_mask,
+                learning_rate: optimizer_spec.lr_schedule.value(t)
+            })
+
+            self.num_param_updates += 1
+            if self.num_param_updates % target_update_freq == 0:
+                session.run(self.update_target_fn)
 
     agents = []
     opponents = [False, True]
