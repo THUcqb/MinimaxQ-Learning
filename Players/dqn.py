@@ -290,7 +290,7 @@ def learn(env,
     writer = tf.summary.FileWriter('logs/' + FLAGS.agents)
     summ_op = tf.summary.merge_all()
 
-    def log_progress(t, best_mean_episode_reward, offset=0):
+    def log_progress(t, eps, best_mean_episode_reward, offset=0):
         LOG_EVERY_N_STEPS = 10000
         PLOT_EVERY_N_STEPS = 1000
         episode_rewards = get_wrapper_by_name(
@@ -310,7 +310,7 @@ def learn(env,
             print("mean reward (100 episodes) %f" % mean_episode_reward)
             print("best mean reward %f" % best_mean_episode_reward)
             print("episodes %d" % len(episode_rewards))
-            print("exploration %f" % exploration.value(t))
+            print("exploration %f" % eps)
             print("learning_rate %f" % optimizer_spec.lr_schedule.value(t))
             sys.stdout.flush()
         return best_mean_episode_reward
@@ -345,7 +345,7 @@ def learn(env,
                 agent.train_step(t)
 
         # 3
-        best_mean_episode_reward = log_progress(t, best_mean_episode_reward)
+        best_mean_episode_reward = log_progress(t, eps, best_mean_episode_reward)
 
     if FLAGS.eval:
         def env_reset():
@@ -359,9 +359,11 @@ def learn(env,
             if learn:
                 last_obs = env_reset()
                 best_mean_episode_reward = -float('inf')
-                for t in range(num_timesteps):
+                # Give challenger more timesteps and exploration
+                # Since the left side has fixed policy
+                for t in range(2 * num_timesteps):
                     ret = replay_buffer.store_frame(last_obs)
-                    eps = exploration.value(t)
+                    eps = exploration.value(t // 3)
 
                     recent_obs = np.expand_dims(replay_buffer.encode_recent_observation(), axis=0)
                     action = agent.choose_action(recent_obs=recent_obs)
@@ -379,7 +381,7 @@ def learn(env,
                             t % learning_freq == 0 and
                             replay_buffer.can_sample(batch_size)):
                         challenger.train_step(t)
-                    best_mean_episode_reward = log_progress(t, best_mean_episode_reward, offset=num_timesteps)
+                    best_mean_episode_reward = log_progress(t, eps,best_mean_episode_reward, offset=num_timesteps)
 
             last_obs = env_reset()
             n_episodes = 0
@@ -395,7 +397,10 @@ def learn(env,
                 replay_buffer.store_effect(ret, action, reward, done)
             episode_rewards = get_wrapper_by_name(
                 env, "Monitor").get_episode_rewards()
-            print(FLAGS.agents + " vs %s: %g" % (name, np.mean(episode_rewards[-EVAL_EPISODES:])))
+            won = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) > 0)
+            lost = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) < 0)
+            draw = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) == 0)
+            print(FLAGS.agents + " vs %s: %d won, %d lost, %d draw. Mean reward %g" % (name, won, lost, draw, np.mean(episode_rewards[-EVAL_EPISODES:])))
 
         # Random challenger
         replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)

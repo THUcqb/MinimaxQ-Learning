@@ -76,7 +76,7 @@ def deepsoccer_q_learn(env, session, num_timesteps):
         num_timesteps=int(num_timesteps),
         replay_buffer_size=1000000,
         batch_size=64,
-        gamma=0.99,
+        gamma=0.9,
         learning_starts=50000,
         learning_freq=4,
         frame_history_len=1,
