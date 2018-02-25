@@ -104,8 +104,8 @@ def learn(env,
     rew_t_ph = tf.placeholder(tf.float32, [None])
     # placeholder for next observation (or state)
     obs_tp1_ph = tf.placeholder(tf.uint8, [None] + list(input_shape))
-    # place holder for current policy
-    pi_t_ph = tf.placeholder(tf.float32, [None, num_actions_per_agent])
+    # placeholder for minimax value for current state
+    v_t_ph = tf.placeholder(tf.float32, [None])
     # placeholder for end of episode mask
     # this value is 1 if the next state corresponds to the end of an episode,
     # in which case there is no Q-value at the next state; at the end of an
@@ -235,14 +235,14 @@ def learn(env,
             q_act = tf.reduce_sum(self.q * tf.one_hot(act_t_ph, self.num_actions * self.num_actions), axis=1)
             # Reshape to look like a matrix game
             self.q = tf.reshape(self.q, [-1, self.num_actions, self.num_actions])
-            target_q = tf.reshape(target_q, [-1, self.num_actions, self.num_actions])
+            self.target_q = tf.reshape(target_q, [-1, self.num_actions, self.num_actions])
             if self.opponent:
                 self.q = tf.transpose(self.q, perm=[0, 2, 1])
-                self.target_q = tf.transpose(self.q, perm=[0, 2, 1])
+                self.target_q = tf.transpose(self.target_q, perm=[0, 2, 1])
 
             # Use min max as minimax
             # TODO use linear programming
-            q_look_ahead = rew_t_ph + (1 - done_mask_ph) * gamma * tf.reduce_min(tf.squeeze(tf.matmul(target_q, tf.expand_dims(pi_t_ph, axis=-1))), axis=1)
+            q_look_ahead = rew_t_ph + (1 - done_mask_ph) * gamma * v_t_ph
 
             # Bellman error
             total_error = tf.nn.l2_loss(q_act - q_look_ahead) / batch_size
@@ -260,15 +260,18 @@ def learn(env,
 
         def choose_action(self, recent_obs):
             q_values = session.run(self.q, feed_dict={obs_t_ph: recent_obs})
-            pi_t = np.squeeze(self._choose_policy(q_values))
+            pi_t = np.squeeze(self._choose_policy(q_values, need_policy=True))
             act = np.random.choice(a=range(self.num_actions), p=pi_t)
             if self.opponent:
                 return self.num_actions * act
             else:
                 return act
 
-        def _choose_policy(self, q_values):
-            pi_t_batch = np.zeros((q_values.shape[0], num_actions_per_agent))
+        def _choose_policy(self, q_values, need_policy=False):
+            if need_policy:
+                pi_t_batch = np.zeros((q_values.shape[0], num_actions_per_agent))
+            else:
+                v_t_batch = np.zeros((q_values.shape[0]))
             for i in range(q_values.shape[0]):
                 c = np.zeros(num_actions_per_agent + 1)
                 c[0] = -1
@@ -281,27 +284,36 @@ def learn(env,
                 bounds = ((None, None), ) + ((0, 1), ) * num_actions_per_agent
                 res = linprog(c, A_ub, b_ub, A_eq, b_eq, bounds)
                 if res.success:
-                    pi_t_batch[i] = res.x[1:]
+                    if need_policy:
+                        pi_t_batch[i] = res.x[1:]
+                    else:
+                        v_t_batch[i] = res.x[0]
                 else:
                     # use max min
                     # TODO inspect how many lp failed
-                    pi_t_batch[i][np.argmax(np.min(q_values[i], axis=0))]
-            return pi_t_batch
+                    if need_policy:
+                        pi_t_batch[i][np.argmax(np.min(q_values[i], axis=0))] = 1
+                    else:
+                        v_t_batch[i] = np.max(np.min(q_values[i], axis=0))
+            if need_policy:
+                return pi_t_batch
+            else:
+                return v_t_batch
 
         def train_step(self, t):
             obs_t_batch, act_t_batch, rew_t_batch, obs_tp1_batch, done_mask = \
                 replay_buffer.sample(batch_size)
             if self.opponent:
                 rew_t_batch = -rew_t_batch
-            q_values = session.run(self.q, feed_dict={obs_t_ph: obs_t_batch})
-            pi_t_batch = self._choose_policy(q_values)
+            q_values = session.run(self.target_q, feed_dict={obs_tp1_ph: obs_tp1_batch})
+            v_t_batch = self._choose_policy(q_values)
 
             session.run(self.train_fn, {
                 obs_t_ph: obs_t_batch,
                 act_t_ph: act_t_batch,
                 rew_t_ph: rew_t_batch,
                 obs_tp1_ph: obs_tp1_batch,
-                pi_t_ph: pi_t_batch,
+                v_t_ph: v_t_batch,
                 done_mask_ph: done_mask,
                 learning_rate: optimizer_spec.lr_schedule.value(t)
             })
@@ -412,7 +424,7 @@ def learn(env,
                 # Since the left side has fixed policy
                 for t in range(2 * num_timesteps):
                     ret = replay_buffer.store_frame(last_obs)
-                    eps = exploration.value(t // 3)
+                    eps = exploration.value(t // 2)
 
                     recent_obs = np.expand_dims(replay_buffer.encode_recent_observation(), axis=0)
                     action = agent.choose_action(recent_obs=recent_obs)

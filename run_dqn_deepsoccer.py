@@ -62,9 +62,8 @@ def deepsoccer_q_learn(env, session, num_timesteps):
     exploration_schedule = PiecewiseSchedule(
         [
             (0, 1.0),
-            (num_iterations / 2, 0.1),
-            (num_iterations, 0.01),
-        ], outside_value=0.01
+            (num_iterations, 0.1),
+        ], outside_value=0.1
     )
 
     dqn.learn(
@@ -75,7 +74,7 @@ def deepsoccer_q_learn(env, session, num_timesteps):
         exploration=exploration_schedule,
         num_timesteps=int(num_timesteps),
         replay_buffer_size=1000000,
-        batch_size=64,
+        batch_size=8,
         gamma=0.9,
         learning_starts=50000,
         learning_freq=4,
