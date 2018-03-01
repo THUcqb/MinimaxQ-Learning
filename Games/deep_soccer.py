@@ -28,7 +28,7 @@ class DeepSoccer(gym.Env):
         self.num_players = num_players
         self.height = height
         self.width = width
-        self.MAX_STEPS_IN_ONE_EPISODE = height * width * 2
+        self.MAX_STEPS_IN_ONE_EPISODE = 100
         # 1 stand, 4 direction, (N-1)teammates
         self.num_actions_for_one_player = 1 + 4 + num_players - 1
         self.num_actions_for_one_team = self.num_actions_for_one_player ** num_players

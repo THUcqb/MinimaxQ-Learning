@@ -16,7 +16,7 @@ register(
     entry_point='Games.deep_soccer:DeepSoccer',
 )
 flags.DEFINE_string('agents', 'QR',
-                    'RR, QR, QQ, MR, MM, MQ, TR, ...')
+                    'RR, QR, QQ, MR, MM, MQ, TR, SR, ...')
 flags.DEFINE_bool('eval', True,
                   'Use random policy to evaluate the first agent')
 flags.DEFINE_bool('challenge', True,
@@ -25,8 +25,12 @@ flags.DEFINE_integer('batch', 32, 'Batch size')
 flags.DEFINE_integer('starts', 50000, 'Learning starts at this step.')
 flags.DEFINE_integer('replay', 1000000, 'replay_buffer_size')
 flags.DEFINE_integer('freq', 4, 'learning freq')
+flags.DEFINE_string('name', '', 'name of the log dir')
 
 FLAGS = flags.FLAGS
+
+if FLAGS.name == '':
+    FLAGS.name = FLAGS.agents
 
 def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
     '''Fully connected: (H*W*(2N+1)) -> 128 -> 64 -> (5+N-1)^N'''
@@ -69,8 +73,8 @@ def deepsoccer_q_learn(env, session, num_timesteps):
     # exploration_schedule = PiecewiseSchedule(
     #     [
     #         (0, 1.0),
-    #         (num_iterations, 0.1),
-    #     ], outside_value=0.1
+    #         (num_iterations, 0.01),
+    #     ], outside_value=0.01
     #)
     exploration_schedule = ConstantSchedule(0.2)
 
@@ -128,7 +132,7 @@ def get_env(env_id, seed):
     set_global_seeds(seed)
     env.seed(seed)
 
-    expt_dir = '/tmp/deepsoccer' + FLAGS.agents + str(FLAGS.batch) + '/'
+    expt_dir = '/tmp/deepsoccer' + FLAGS.name + '/'
     env = wrappers.Monitor(env, osp.join(expt_dir, "gym"), force=True)
     # env = wrap_deepmind(env)
 
@@ -146,4 +150,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

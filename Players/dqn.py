@@ -128,8 +128,8 @@ def learn(env,
 
     class Agent(object):
         def __init__(self, num_actions, opponent):
-             self.num_actions = num_actions
-             self.opponent = opponent
+            self.num_actions = num_actions
+            self.opponent = opponent
 
         def random_action(self):
             if self.opponent:
@@ -156,7 +156,7 @@ def learn(env,
         def choose_action(self, recent_obs):
             return self.random_action()
 
-        def train_step(self, t):
+        def train_step(self, recent_obs, action, reward, last_obs, done):
             pass
 
     class QAgent(Agent):
@@ -167,25 +167,34 @@ def learn(env,
 
         def construct_model(self):
             # Q
-            self.q = q_func(obs_t_float, self.num_actions, scope=self.scope+"q", reuse=False)
-            q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope+"q")
+            self.q = q_func(obs_t_float, self.num_actions,
+                            scope=self.scope+"q", reuse=False)
+            q_func_vars = tf.get_collection(
+                tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope+"q")
             # Target Q
-            target_q = q_func(obs_tp1_float, self.num_actions,scope=self.scope+"target_q", reuse=False)
-            target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope+"target_q")
+            target_q = q_func(obs_tp1_float, self.num_actions,
+                              scope=self.scope+"target_q", reuse=False)
+            target_q_func_vars = tf.get_collection(
+                tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope+"target_q")
             # Choose the corresponding q value of the action
             if self.opponent:
-                q_act = tf.reduce_sum(self.q * tf.one_hot(act_t_ph // self.num_actions, self.num_actions), axis=1)
+                q_act = tf.reduce_sum(
+                    self.q * tf.one_hot(act_t_ph // self.num_actions, self.num_actions), axis=1)
             else:
-                q_act = tf.reduce_sum(self.q * tf.one_hot(act_t_ph % self.num_actions, self.num_actions), axis=1)
+                q_act = tf.reduce_sum(
+                    self.q * tf.one_hot(act_t_ph % self.num_actions, self.num_actions), axis=1)
 
-            q_look_ahead = rew_t_ph + (1 - done_mask_ph) * gamma * tf.reduce_max(target_q, axis=1)
+            q_look_ahead = rew_t_ph + \
+                (1 - done_mask_ph) * gamma * tf.reduce_max(target_q, axis=1)
 
             # Bellman error
             total_error = tf.nn.l2_loss(q_act - q_look_ahead) / batch_size
 
             # construct optimization op (with gradient clipping)
-            optimizer = optimizer_spec.constructor(learning_rate=learning_rate, **optimizer_spec.kwargs)
-            self.train_fn = minimize_and_clip(optimizer, total_error, var_list=q_func_vars, clip_val=grad_norm_clipping)
+            optimizer = optimizer_spec.constructor(
+                learning_rate=learning_rate, **optimizer_spec.kwargs)
+            self.train_fn = minimize_and_clip(
+                optimizer, total_error, var_list=q_func_vars, clip_val=grad_norm_clipping)
 
             # update_target_fn will be called periodically to copy Q network to target Q network
             update_target_fn = []
@@ -226,16 +235,23 @@ def learn(env,
 
         def construct_model(self):
             # Q
-            self.q = q_func(obs_t_float, self.num_actions * self.num_actions, scope=self.scope+"q", reuse=False)
-            q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope+"q")
+            self.q = q_func(obs_t_float, self.num_actions *
+                            self.num_actions, scope=self.scope+"q", reuse=False)
+            q_func_vars = tf.get_collection(
+                tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope+"q")
             # Target Q
-            target_q = q_func(obs_tp1_float, self.num_actions * self.num_actions, scope=self.scope+"target_q", reuse=False)
-            target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope+"target_q")
+            target_q = q_func(obs_tp1_float, self.num_actions *
+                              self.num_actions, scope=self.scope+"target_q", reuse=False)
+            target_q_func_vars = tf.get_collection(
+                tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope+"target_q")
             # Choose the corresponding minimax q value of the action
-            q_act = tf.reduce_sum(self.q * tf.one_hot(act_t_ph, self.num_actions * self.num_actions), axis=1)
+            q_act = tf.reduce_sum(
+                self.q * tf.one_hot(act_t_ph, self.num_actions * self.num_actions), axis=1)
             # Reshape to look like a matrix game
-            self.q = tf.reshape(self.q, [-1, self.num_actions, self.num_actions])
-            self.target_q = tf.reshape(target_q, [-1, self.num_actions, self.num_actions])
+            self.q = tf.reshape(
+                self.q, [-1, self.num_actions, self.num_actions])
+            self.target_q = tf.reshape(
+                target_q, [-1, self.num_actions, self.num_actions])
             if self.opponent:
                 self.q = tf.transpose(self.q, perm=[0, 2, 1])
                 self.target_q = tf.transpose(self.target_q, perm=[0, 2, 1])
@@ -247,8 +263,10 @@ def learn(env,
             total_error = tf.nn.l2_loss(q_act - q_look_ahead) / batch_size
 
             # construct optimization op (with gradient clipping)
-            optimizer = optimizer_spec.constructor(learning_rate=learning_rate, **optimizer_spec.kwargs)
-            self.train_fn = minimize_and_clip(optimizer, total_error, var_list=q_func_vars, clip_val=grad_norm_clipping)
+            optimizer = optimizer_spec.constructor(
+                learning_rate=learning_rate, **optimizer_spec.kwargs)
+            self.train_fn = minimize_and_clip(
+                optimizer, total_error, var_list=q_func_vars, clip_val=grad_norm_clipping)
 
             # update_target_fn will be called periodically to copy Q network to target Q network
             update_target_fn = []
@@ -259,7 +277,8 @@ def learn(env,
 
         def choose_action(self, recent_obs):
             q_values = session.run(self.q, feed_dict={obs_t_ph: recent_obs})
-            _, pi_t = np.squeeze(self._choose_policy(q_values, need_policy=True))
+            _, pi_t = np.squeeze(self._choose_policy(
+                q_values, need_policy=True))
             act = np.random.choice(a=range(self.num_actions), p=pi_t)
             if self.opponent:
                 return self.num_actions * act
@@ -268,12 +287,14 @@ def learn(env,
 
         def _choose_policy(self, q_values, need_policy=False):
             if need_policy:
-                pi_t_batch = np.zeros((q_values.shape[0], num_actions_per_agent))
+                pi_t_batch = np.zeros(
+                    (q_values.shape[0], num_actions_per_agent))
             v_t_batch = np.zeros((q_values.shape[0]))
             for i in range(q_values.shape[0]):
                 c = np.zeros(num_actions_per_agent + 1)
                 c[0] = -1
-                A_ub = np.ones((num_actions_per_agent, num_actions_per_agent + 1))
+                A_ub = np.ones(
+                    (num_actions_per_agent, num_actions_per_agent + 1))
                 A_ub[:, 1:] = -q_values[i]
                 b_ub = np.zeros(num_actions_per_agent)
                 A_eq = np.ones((1, num_actions_per_agent + 1))
@@ -289,7 +310,8 @@ def learn(env,
                     # use max min
                     # TODO inspect how many lp failed
                     if need_policy:
-                        pi_t_batch[i][np.argmax(np.min(q_values[i], axis=0))] = 1
+                        pi_t_batch[i][np.argmax(
+                            np.min(q_values[i], axis=0))] = 1
                     v_t_batch[i] = np.max(np.min(q_values[i], axis=0))
             if need_policy:
                 return v_t_batch, pi_t_batch
@@ -301,7 +323,8 @@ def learn(env,
                 replay_buffer.sample(batch_size)
             if self.opponent:
                 rew_t_batch = -rew_t_batch
-            q_values = session.run(self.target_q, feed_dict={obs_tp1_ph: obs_tp1_batch})
+            q_values = session.run(self.target_q, feed_dict={
+                                   obs_tp1_ph: obs_tp1_batch})
             v_t_batch = self._choose_policy(q_values)
 
             session.run(self.train_fn, {
@@ -320,70 +343,127 @@ def learn(env,
     HEIGHT = 7
     WIDTH = 4
     PLAYERS = 1
-    class TabularMinimaxQAgent(MinimaxQAgent):
+
+    class TabularQAgent(QAgent):
         def __init__(self, num_actions, opponent, scope):
-            super(MinimaxQAgent, self).__init__(num_actions, opponent, scope)
-            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS + 1)
+            super(TabularQAgent, self).__init__(num_actions, opponent, scope)
+            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS) * 2
             self.alpha = 1
             self.decay = 10 ** (-2 / num_timesteps)
 
         def construct_model(self):
-            # self.V = np.ones(self.num_states)
-            self.Q = np.ones((self.num_states, self.num_actions ** 2))
-            self.pi = np.ones((self.num_states, self.num_actions)) / self.num_actions
+            self.Q = np.random.random((self.num_states, self.num_actions))
 
         def choose_action(self, recent_obs):
-            recent_obs = np.squeeze(recent_obs)
             recent_obs_idx = self._state_idx(recent_obs)
-            return np.random.choice(self.num_actions, p=self.pi[recent_obs_idx])
-
-        def train_step(self, t):
-            obs_t_batch, act_t_batch, rew_t_batch, obs_tp1_batch, done_mask = \
-                replay_buffer.sample(batch_size)
             if self.opponent:
-                rew_t_batch = -rew_t_batch
-            q_values = self.Q[[self._state_idx(obs_tp1) for obs_tp1 in obs_tp1_batch]].reshape((-1, self.num_actions, self.num_actions))
-            if self.opponent:
-                q_values = np.transpose(q_values, axes=(0, 2, 1))
-            v_t_batch, pi_t_batch = self._choose_policy(q_values, need_policy=True)
+                return self.num_actions * np.argmax(self.Q[recent_obs_idx])
+            else:
+                return np.argmax(self.Q[recent_obs_idx])
 
-            # alpha = optimizer_spec.lr_schedule.value(t) / optimizer_spec.lr_schedule.value(0)
+        def train_step(self, recent_obs, action, reward, last_obs, done):
+            if self.opponent:
+                reward = -reward
+                action //= self.num_actions
+            else:
+                action %= self.num_actions
+
+            state = self._state_idx(recent_obs)
+            next_state = self._state_idx(last_obs)
+
+            self.Q[state, action] += self.alpha * \
+                (reward +
+                 gamma * (1 - done) * np.max(self.Q[next_state]) -
+                 self.Q[state, action])
             self.alpha *= self.decay
-            for i in range(obs_t_batch.shape[0]):
-                self.Q[self._state_idx(obs_t_batch[i]), act_t_batch[i]] += \
-                       self.alpha * \
-                       (rew_t_batch[i] + gamma * (1 - done_mask[i]) * v_t_batch[i] - \
-                        self.Q[self._state_idx(obs_t_batch[i]), act_t_batch[i]])
-                # self.V[self._state_idx(obs_t_batch[i])] = v_t_batch[i]
-                self.pi[self._state_idx(obs_t_batch[i])] = pi_t_batch[i]
 
         @staticmethod
         def _state_idx(state):
             idx = 0
-            for i in range(state.shape[2]):
+            for i in range(2 * PLAYERS):
                 idx *= HEIGHT * WIDTH
                 idx += np.argmax(state[i])
+            # TODO only 2 people
+            if np.argmax(state[2]) == np.argmax(state[1]):
+                idx += HEIGHT * WIDTH ** (2 * PLAYERS)
+            return idx
+
+    class TabularMinimaxQAgent(MinimaxQAgent):
+        def __init__(self, num_actions, opponent, scope):
+            super(TabularMinimaxQAgent, self).__init__(
+                num_actions, opponent, scope)
+            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS) * 2
+            self.alpha = 1
+            self.decay = 10 ** (-2 / num_timesteps)
+
+        def construct_model(self):
+            self.Q = np.random.random((self.num_states, self.num_actions ** 2))
+            self.pi = np.ones(
+                (self.num_states, self.num_actions)) / self.num_actions
+
+        def choose_action(self, recent_obs):
+            recent_obs_idx = self._state_idx(recent_obs)
+            if self.opponent:
+                return self.num_actions * np.random.choice(self.num_actions, p=self.pi[recent_obs_idx])
+            else:
+                return np.random.choice(self.num_actions, p=self.pi[recent_obs_idx])
+
+        def train_step(self, obs, action, reward, next_obs, done):
+            q_values = self.Q[self._state_idx(next_obs)].reshape(
+                (-1, self.num_actions, self.num_actions))
+            if self.opponent:
+                reward = -reward
+                q_values = np.transpose(q_values, axes=(0, 2, 1))
+            v_t_batch, pi_t_batch = self._choose_policy(
+                q_values, need_policy=True)
+
+            obs_idx = self._state_idx(obs)
+            self.Q[obs_idx, action] += self.alpha * \
+                (reward +
+                 gamma * (1 - done) * v_t_batch[0] -
+                 self.Q[obs_idx, action])
+            self.pi[obs_idx] = pi_t_batch[0]
+            self.alpha *= self.decay
+
+        @staticmethod
+        def _state_idx(state):
+            idx = 0
+            for i in range(2 * PLAYERS):
+                idx *= HEIGHT * WIDTH
+                idx += np.argmax(state[i])
+            # TODO only 2 people
+            if np.argmax(state[2]) == np.argmax(state[1]):
+                idx += HEIGHT * WIDTH ** (2 * PLAYERS)
             return idx
 
     agents = []
     opponents = [False, True]
     scopes = ["", "opp_"]
+    # TODO: use factory method to create agent instances
     for i, (opponent, scope) in enumerate(zip(opponents, scopes)):
         if FLAGS.agents[i] == 'T':
-            agents.append(TabularMinimaxQAgent(num_actions=num_actions_per_agent, opponent=opponent, scope=scope))
+            agents.append(TabularQAgent(
+                num_actions=num_actions_per_agent, opponent=opponent, scope=scope))
+        elif FLAGS.agents[i] == 'S':
+            agents.append(TabularMinimaxQAgent(
+                num_actions=num_actions_per_agent, opponent=opponent, scope=scope))
         elif FLAGS.agents[i] == 'M':
-            agents.append(MinimaxQAgent(num_actions=num_actions_per_agent, opponent=opponent, scope=scope))
+            agents.append(MinimaxQAgent(
+                num_actions=num_actions_per_agent, opponent=opponent, scope=scope))
         elif FLAGS.agents[i] == 'Q':
-            agents.append(QAgent(num_actions=num_actions_per_agent, opponent=opponent, scope=scope))
+            agents.append(QAgent(num_actions=num_actions_per_agent,
+                                 opponent=opponent, scope=scope))
         elif FLAGS.agents[i] == 'R':
-            agents.append(RandomAgent(num_actions=num_actions_per_agent, opponent=opponent))
+            agents.append(RandomAgent(
+                num_actions=num_actions_per_agent, opponent=opponent))
         else:
             raise NotImplementedError
         agents[i].construct_model()
     if FLAGS.eval:
         random_challenger = RandomAgent(num_actions_per_agent, opponent=True)
     if FLAGS.challenge:
-        q_challenger = TabularMinimaxQAgent(num_actions_per_agent, opponent=True, scope="chal")
+        q_challenger = TabularQAgent(
+            num_actions_per_agent, opponent=True, scope="chal")
         q_challenger.construct_model()
 
     initialize_interdependent_variables(session, tf.global_variables())
@@ -394,7 +474,7 @@ def learn(env,
 
     best_mean_episode_reward = -float('inf')
     last_obs = env.reset()
-    writer = tf.summary.FileWriter('logs/' + FLAGS.agents)
+    writer = tf.summary.FileWriter('logs/' + FLAGS.name)
     summ_op = tf.summary.merge_all()
 
     def log_progress(t, eps, best_mean_episode_reward, offset=0):
@@ -409,7 +489,8 @@ def learn(env,
             best_mean_episode_reward = max(
                 best_mean_episode_reward, mean_episode_reward)
         if t % PLOT_EVERY_N_STEPS == 0:
-            s = session.run(summ_op, feed_dict={mean_rew_ph: mean_episode_reward})
+            s = session.run(summ_op, feed_dict={
+                mean_rew_ph: mean_episode_reward})
             writer.add_summary(s, t + offset)
             writer.flush()
         if t % LOG_EVERY_N_STEPS == 0 and t >= learning_starts:
@@ -424,35 +505,39 @@ def learn(env,
 
     for t in range(num_timesteps):
         # 1. Step the env and store the transition
-        ret = replay_buffer.store_frame(last_obs)
+        # ret=replay_buffer.store_frame(last_obs)
+
         eps = exploration.value(t)
 
         action = 0
         for agent in agents:
+            recent_obs = last_obs.copy()
             if np.random.random() >= eps and t >= learning_starts:
-                recent_obs = np.expand_dims(replay_buffer.encode_recent_observation(), axis=0)
+                # recent_obs=np.expand_dims(
+                    # replay_buffer.encode_recent_observation(), axis=0)
                 action += agent.choose_action(recent_obs=recent_obs)
             else:
                 action += agent.random_action()
 
         last_obs, reward, done, info = env.step(action)
+        # replay_buffer.store_effect(ret, action, reward, done)
         if done:
             last_obs = env.reset()
-        replay_buffer.store_effect(ret, action, reward, done)
 
         # 2. Perform experience replay and train the network.
         # note that this is only done if the replay buffer contains enough samples
         # for us to learn something useful -- until then, the model will not be
         # initialized and random actions should be taken
         if (t >= learning_starts and
-                t % learning_freq == 0 and
-                replay_buffer.can_sample(batch_size)):
+                t % learning_freq == 0):  # and
+                # replay_buffer.can_sample(batch_size)):
 
             for agent in agents:
-                agent.train_step(t)
+                agent.train_step(recent_obs, action, reward, last_obs, done)
 
         # 3
-        best_mean_episode_reward = log_progress(t, eps, best_mean_episode_reward)
+        best_mean_episode_reward = log_progress(
+            t, eps, best_mean_episode_reward)
 
     def env_reset():
         while True:
@@ -468,10 +553,12 @@ def learn(env,
             # Give challenger more timesteps and exploration
             # Since the left side has fixed policy
             for t in range(2 * num_timesteps):
-                ret = replay_buffer.store_frame(last_obs)
+                # ret=replay_buffer.store_frame(last_obs)
                 eps = exploration.value(t // 2)
 
-                recent_obs = np.expand_dims(replay_buffer.encode_recent_observation(), axis=0)
+                # recent_obs=np.expand_dims(
+                # replay_buffer.encode_recent_observation(), axis=0)
+                recent_obs = last_obs.copy()
                 action = agent.choose_action(recent_obs=recent_obs)
                 if np.random.random() >= eps and t >= learning_starts:
                     action += challenger.choose_action(recent_obs=recent_obs)
@@ -481,40 +568,40 @@ def learn(env,
                 last_obs, reward, done, info = env.step(action)
                 if done:
                     last_obs = env.reset()
-                replay_buffer.store_effect(ret, action, reward, done)
+                # replay_buffer.store_effect(ret, action, reward, done)
 
                 if (t >= learning_starts and
-                        t % learning_freq == 0 and
-                        replay_buffer.can_sample(batch_size)):
-                    challenger.train_step(t)
-                best_mean_episode_reward = log_progress(t, eps,best_mean_episode_reward, offset=num_timesteps)
+                        t % learning_freq == 0):  # and
+                        # replay_buffer.can_sample(batch_size)):
+                    challenger.train_step(
+                        recent_obs, action, reward, last_obs, done)
+                best_mean_episode_reward = log_progress(
+                    t, eps, best_mean_episode_reward, offset=num_timesteps)
 
         last_obs = env_reset()
         n_episodes = 0
         EVAL_EPISODES = 5000
         while n_episodes < EVAL_EPISODES:
-            ret = replay_buffer.store_frame(last_obs)
-            recent_obs = np.expand_dims(replay_buffer.encode_recent_observation(), axis=0)
-            action = agent.choose_action(recent_obs=recent_obs) + challenger.choose_action(recent_obs=recent_obs)
+            action = agent.choose_action(
+                recent_obs=last_obs) + challenger.choose_action(recent_obs=last_obs)
             last_obs, reward, done, info = env.step(action)
             if done:
                 last_obs = env.reset()
                 n_episodes += 1
-            replay_buffer.store_effect(ret, action, reward, done)
         episode_rewards = get_wrapper_by_name(
             env, "Monitor").get_episode_rewards()
         won = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) > 0)
         lost = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) < 0)
         draw = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) == 0)
-        print(FLAGS.agents + " vs %s: %d won, %d lost, %d draw. Mean reward %g" % (name, won, lost, draw, np.mean(episode_rewards[-EVAL_EPISODES:])))
+        print(FLAGS.agents + " vs %s: %d won, %d lost, %d draw. Mean reward %g" %
+              (name, won, lost, draw, np.mean(episode_rewards[-EVAL_EPISODES:])))
 
     if FLAGS.eval:
         # Random challenger
         replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
         evaluate(agents[0], random_challenger, learn=False, name="random")
-    
+
     if FLAGS.challenge:
         # Q challenger
         replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
-        evaluate(agents[0], q_challenger, learn=True, name="tabular minimax")
-
+        evaluate(agents[0], q_challenger, learn=True, name="tabular q")
