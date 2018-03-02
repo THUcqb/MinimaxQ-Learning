@@ -24,19 +24,7 @@ Only console interface for games...
 ### Examples
 
 ```bash
-make tabularQR
-```
-
-```bash
-make tabularMR
-```
-
-```bash
-make QR
-```
-
-```bash
-make MM
+python run_all.py
 ```
 
 ### Results

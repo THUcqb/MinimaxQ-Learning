@@ -1,11 +1,6 @@
-import argparse
-import gym
 from gym import wrappers
 from gym.envs.registration import register
 import os.path as osp
-import random
-import numpy as np
-import tensorflow as tf
 import tensorflow.contrib.layers as layers
 from tensorflow.python.platform import flags
 from Players import dqn
@@ -26,6 +21,8 @@ flags.DEFINE_integer('starts', 50000, 'Learning starts at this step.')
 flags.DEFINE_integer('replay', 1000000, 'replay_buffer_size')
 flags.DEFINE_integer('freq', 4, 'learning freq')
 flags.DEFINE_string('name', '', 'name of the log dir')
+flags.DEFINE_integer('seed', 0, 'Random seed.')
+flags.DEFINE_integer('timesteps', 1e6, 'Training timesteps, not episodes.')
 
 FLAGS = flags.FLAGS
 
@@ -33,7 +30,7 @@ if FLAGS.name == '':
     FLAGS.name = FLAGS.agents
 
 def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
-    '''Fully connected: (H*W*(2N+1)) -> 128 -> 64 -> (5+N-1)^N'''
+    """Fully connected: (H*W*(2N+1)) -> 128 -> 64 -> (5+N-1)^N"""
     with tf.variable_scope(scope, reuse=reuse):
         out = layers.flatten(img_in)
         with tf.variable_scope("action_value"):
@@ -125,8 +122,6 @@ def get_session():
 
 
 def get_env(env_id, seed):
-    # env_id = task.env_id
-
     env = gym.make(env_id)
 
     set_global_seeds(seed)
@@ -134,18 +129,17 @@ def get_env(env_id, seed):
 
     expt_dir = '/tmp/deepsoccer' + FLAGS.name + '/'
     env = wrappers.Monitor(env, osp.join(expt_dir, "gym"), force=True)
-    # env = wrap_deepmind(env)
 
     return env
 
 
 def main():
     # Run training
-    seed = 0  # Use a seed of zero (you may want to randomize the seed!)
+    seed = FLAGS.seed  # Use a seed of zero (you may want to randomize the seed!)
     env = get_env('DeepSoccer-v0', seed)
     session = get_session()
     # TODO set proper timesteps
-    deepsoccer_q_learn(env, session, num_timesteps=1e6)
+    deepsoccer_q_learn(env, session, num_timesteps=FLAGS.timesteps)
 
 
 if __name__ == "__main__":

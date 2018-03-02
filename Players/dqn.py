@@ -1,10 +1,6 @@
 import sys
 import gym.spaces
-import itertools
-import numpy as np
-import random
 import tensorflow as tf
-import tensorflow.contrib.layers as layers
 from tensorflow.python.platform import flags
 from collections import namedtuple
 from .dqn_utils import *
@@ -344,10 +340,10 @@ def learn(env,
     WIDTH = 4
     PLAYERS = 1
 
-    class TabularQAgent(QAgent):
+    class TabularQAgent(Agent):
         def __init__(self, num_actions, opponent, scope):
-            super(TabularQAgent, self).__init__(num_actions, opponent, scope)
-            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS) * 2
+            super(TabularQAgent, self).__init__(num_actions, opponent)
+            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS + 1)
             self.alpha = 1
             self.decay = 10 ** (-2 / num_timesteps)
 
@@ -380,19 +376,16 @@ def learn(env,
         @staticmethod
         def _state_idx(state):
             idx = 0
-            for i in range(2 * PLAYERS):
+            for i in range(2 * PLAYERS + 1):
                 idx *= HEIGHT * WIDTH
-                idx += np.argmax(state[i])
-            # TODO only 2 people
-            if np.argmax(state[2]) == np.argmax(state[1]):
-                idx += HEIGHT * WIDTH ** (2 * PLAYERS)
+                idx += np.argmax(state[:, :, i])
+
             return idx
 
-    class TabularMinimaxQAgent(MinimaxQAgent):
+    class TabularMinimaxQAgent(Agent):
         def __init__(self, num_actions, opponent, scope):
-            super(TabularMinimaxQAgent, self).__init__(
-                num_actions, opponent, scope)
-            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS) * 2
+            super(TabularMinimaxQAgent, self).__init__(num_actions, opponent)
+            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS + 1)
             self.alpha = 1
             self.decay = 10 ** (-2 / num_timesteps)
 
@@ -408,32 +401,56 @@ def learn(env,
             else:
                 return np.random.choice(self.num_actions, p=self.pi[recent_obs_idx])
 
+        def _choose_policy(self, q_values, need_policy=False):
+            if need_policy:
+                pi_t = np.zeros((num_actions_per_agent))
+            # c = np.zeros(num_actions_per_agent + 1)
+            # c[0] = -1
+            # A_ub = np.ones(
+            #     (num_actions_per_agent, num_actions_per_agent + 1))
+            # A_ub[:, 1:] = -q_values
+            # b_ub = np.zeros(num_actions_per_agent)
+            # A_eq = np.ones((1, num_actions_per_agent + 1))
+            # A_eq[0, 0] = 0
+            # b_eq = [1]
+            # bounds = ((None, None), ) + ((0, 1), ) * num_actions_per_agent
+            # res = linprog(c, A_ub, b_ub, A_eq, b_eq, bounds)
+            # if res.success:
+            #     if need_policy:
+            #         pi_t = res.x[1:]
+            #     v_t = res.x[0]
+            # else:
+                # use max min
+                # TODO inspect how many lp failed
+            if need_policy:
+                pi_t[np.argmax(np.min(q_values, axis=0))] = 1
+            v_t = np.max(np.min(q_values, axis=0))
+            if need_policy:
+                return v_t, pi_t
+            else:
+                return v_t
+
         def train_step(self, obs, action, reward, next_obs, done):
             q_values = self.Q[self._state_idx(next_obs)].reshape(
-                (-1, self.num_actions, self.num_actions))
+                (self.num_actions, self.num_actions))
             if self.opponent:
                 reward = -reward
-                q_values = np.transpose(q_values, axes=(0, 2, 1))
-            v_t_batch, pi_t_batch = self._choose_policy(
-                q_values, need_policy=True)
+                q_values = np.transpose(q_values)
+            v_t, pi_t = self._choose_policy(q_values, need_policy=True)
 
-            obs_idx = self._state_idx(obs)
-            self.Q[obs_idx, action] += self.alpha * \
-                (reward +
-                 gamma * (1 - done) * v_t_batch[0] -
-                 self.Q[obs_idx, action])
-            self.pi[obs_idx] = pi_t_batch[0]
+            state = self._state_idx(obs)
+            self.Q[state, action] += self.alpha * \
+                (reward + gamma * (1 - done) * v_t - self.Q[state, action])
+            self.pi[state] = pi_t
             self.alpha *= self.decay
 
         @staticmethod
         def _state_idx(state):
             idx = 0
-            for i in range(2 * PLAYERS):
+            for i in range(2 * PLAYERS + 1):
                 idx *= HEIGHT * WIDTH
-                idx += np.argmax(state[i])
-            # TODO only 2 people
-            if np.argmax(state[2]) == np.argmax(state[1]):
-                idx += HEIGHT * WIDTH ** (2 * PLAYERS)
+                idx += np.argmax(state[:, :, i])
+
             return idx
 
     agents = []
@@ -593,8 +610,8 @@ def learn(env,
         won = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) > 0)
         lost = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) < 0)
         draw = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) == 0)
-        print(FLAGS.agents + " vs %s: %d won, %d lost, %d draw. Mean reward %g" %
-              (name, won, lost, draw, np.mean(episode_rewards[-EVAL_EPISODES:])))
+        print(" vs %s: %d won, %d lost, %d draw. Win rate %g" %
+              (name, won, lost, draw, won / EVAL_EPISODES))
 
     if FLAGS.eval:
         # Random challenger
@@ -604,4 +621,4 @@ def learn(env,
     if FLAGS.challenge:
         # Q challenger
         replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
-        evaluate(agents[0], q_challenger, learn=True, name="tabular q")
+        evaluate(agents[0], q_challenger, learn=True, name="challenger")
