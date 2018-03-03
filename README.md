@@ -24,7 +24,7 @@ Only console interface for games...
 ### Examples
 
 ```bash
-python run_all.py
+python all.py
 ```
 
 ### Results
