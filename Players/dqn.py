@@ -391,18 +391,16 @@ def learn(env,
 
         def construct_model(self):
             self.Q = np.random.random((self.num_states, self.num_actions ** 2))
+            self.V = np.random.random((self.num_states))
+            self.pi = np.ones((self.num_states, self.num_actions)) / self.num_actions
 
         def choose_action(self, recent_obs):
-            q_values = self.Q[self._state_idx(recent_obs)].reshape(
-                (self.num_actions, self.num_actions))
+            state = self._state_idx(recent_obs)
+            # print(self.pi[state])
             if self.opponent:
-                q_values = np.transpose(q_values)
-
-            _, pi = self._choose_policy(q_values, need_policy=True)
-            if self.opponent:
-                return self.num_actions * np.random.choice(self.num_actions, p=pi)
+                return self.num_actions * np.random.choice(self.num_actions, p=self.pi[state])
             else:
-                return np.random.choice(self.num_actions, p=pi)
+                return np.random.choice(self.num_actions, p=self.pi[state])
 
         def _choose_policy(self, q_values, need_policy=False):
             if need_policy:
@@ -434,16 +432,21 @@ def learn(env,
                 return v_t
 
         def train_step(self, obs, action, reward, next_obs, done):
-            q_values = self.Q[self._state_idx(next_obs)].reshape(
-                (self.num_actions, self.num_actions))
             if self.opponent:
                 reward = -reward
-                q_values = np.transpose(q_values)
-            v_t, pi_t = self._choose_policy(q_values, need_policy=True)
 
             state = self._state_idx(obs)
+            next_state = self._state_idx(next_obs)
             self.Q[state, action] += self.alpha * \
-                (reward + gamma * (1 - done) * v_t - self.Q[state, action])
+                (reward + gamma * (1 - done) * self.V[next_state] - self.Q[state, action])
+
+            # Update policy
+            q_values = self.Q[state].reshape(
+                (self.num_actions, self.num_actions))
+            if self.opponent:
+                q_values = np.transpose(q_values)
+            self.V[state], self.pi[state] = self._choose_policy(q_values, need_policy=True)
+
             self.alpha *= self.decay
 
         @staticmethod

@@ -113,11 +113,11 @@ def set_global_seeds(i):
 
 def get_session():
     tf.reset_default_graph()
-    tf_config = tf.ConfigProto(
-        inter_op_parallelism_threads=1,
-        intra_op_parallelism_threads=1)
-    session = tf.Session(config=tf_config)
-    print("AVAILABLE GPUS: ", get_available_gpus())
+    # tf_config = tf.ConfigProto(
+    #     inter_op_parallelism_threads=1,
+    #     intra_op_parallelism_threads=1)
+    session = tf.Session()
+    # print("AVAILABLE GPUS: ", get_available_gpus())
     return session
 
 

@@ -23,5 +23,4 @@ for run in runs:
     raw = output.stdout.decode('utf-8')
     result = list(filter(lambda line: 'vs' in line, raw.split('\n')))
     results[run] = result
-
-pprint.pprint(results)
+    pprint.pprint(results)
