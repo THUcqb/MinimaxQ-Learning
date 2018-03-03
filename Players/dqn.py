@@ -273,6 +273,7 @@ def learn(env,
             self.update_target_fn = tf.group(*update_target_fn)
 
         def choose_action(self, obs):
+            obs = np.expand_dims(obs, axis=0)
             q_values = session.run(self.q, feed_dict={obs_t_ph: obs})
             _, pi_t = np.squeeze(self._choose_policy(
                 q_values, need_policy=True))
@@ -352,7 +353,6 @@ def learn(env,
             self.Q = np.random.random((self.num_states, self.num_actions))
 
         def choose_action(self, obs):
-            obs = np.expand_dims(obs, axis=0)
             state = self._state_idx(obs)
             if self.opponent:
                 return self.num_actions * np.argmax(self.Q[state])
