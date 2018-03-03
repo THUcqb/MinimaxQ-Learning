@@ -136,10 +136,10 @@ def learn(env,
         def construct_model(self):
             raise NotImplementedError
 
-        def choose_action(self):
+        def choose_action(self, obs):
             raise NotImplementedError
 
-        def train_step(self):
+        def train_step(self, t):
             raise NotImplementedError
 
     class RandomAgent(Agent):
@@ -149,10 +149,10 @@ def learn(env,
         def construct_model(self):
             pass
 
-        def choose_action(self, recent_obs):
+        def choose_action(self, obs):
             return self.random_action()
 
-        def train_step(self, recent_obs, action, reward, last_obs, done):
+        def train_step(self, t):
             pass
 
     class QAgent(Agent):
@@ -199,8 +199,9 @@ def learn(env,
                 update_target_fn.append(var_target.assign(var))
             self.update_target_fn = tf.group(*update_target_fn)
 
-        def choose_action(self, recent_obs):
-            q_values = session.run(self.q, feed_dict={obs_t_ph: recent_obs})
+        def choose_action(self, obs):
+            obs = np.expand_dims(obs, axis=0)
+            q_values = session.run(self.q, feed_dict={obs_t_ph: obs})
             if self.opponent:
                 return self.num_actions * np.argmax(np.squeeze(q_values))
             else:
@@ -271,8 +272,8 @@ def learn(env,
                 update_target_fn.append(var_target.assign(var))
             self.update_target_fn = tf.group(*update_target_fn)
 
-        def choose_action(self, recent_obs):
-            q_values = session.run(self.q, feed_dict={obs_t_ph: recent_obs})
+        def choose_action(self, obs):
+            q_values = session.run(self.q, feed_dict={obs_t_ph: obs})
             _, pi_t = np.squeeze(self._choose_policy(
                 q_values, need_policy=True))
             act = np.random.choice(a=range(self.num_actions), p=pi_t)
@@ -350,31 +351,39 @@ def learn(env,
         def construct_model(self):
             self.Q = np.random.random((self.num_states, self.num_actions))
 
-        def choose_action(self, recent_obs):
-            recent_obs_idx = self._state_idx(recent_obs)
+        def choose_action(self, obs):
+            obs = np.expand_dims(obs, axis=0)
+            state = self._state_idx(obs)
             if self.opponent:
-                return self.num_actions * np.argmax(self.Q[recent_obs_idx])
+                return self.num_actions * np.argmax(self.Q[state])
             else:
-                return np.argmax(self.Q[recent_obs_idx])
+                return np.argmax(self.Q[state])
 
-        def train_step(self, recent_obs, action, reward, last_obs, done):
+        def train_step(self, t):
+            obs, act, rew, obs_next, done = replay_buffer.sample(batch_size)
+            obs = np.squeeze(obs)
+            act = np.squeeze(act)
+            rew = np.squeeze(rew)
+            obs_next = np.squeeze(obs_next)
+            done = np.squeeze(done)
             if self.opponent:
-                reward = -reward
-                action //= self.num_actions
+                rew = -rew
+                act //= self.num_actions
             else:
-                action %= self.num_actions
+                act %= self.num_actions
 
-            state = self._state_idx(recent_obs)
-            next_state = self._state_idx(last_obs)
+            state = self._state_idx(obs)
+            next_state = self._state_idx(obs_next)
 
-            self.Q[state, action] += self.alpha * \
-                (reward +
-                 gamma * (1 - done) * np.max(self.Q[next_state]) -
-                 self.Q[state, action])
+            self.Q[state, act] += self.alpha * \
+                                  (rew +
+                                   gamma * (1 - done) * np.max(self.Q[next_state]) -
+                                   self.Q[state, act])
             self.alpha *= self.decay
 
         @staticmethod
         def _state_idx(state):
+            assert state.ndim == 3
             idx = 0
             for i in range(2 * PLAYERS + 1):
                 idx *= HEIGHT * WIDTH
@@ -394,9 +403,8 @@ def learn(env,
             self.V = np.random.random((self.num_states))
             self.pi = np.ones((self.num_states, self.num_actions)) / self.num_actions
 
-        def choose_action(self, recent_obs):
-            state = self._state_idx(recent_obs)
-            # print(self.pi[state])
+        def choose_action(self, obs):
+            state = self._state_idx(obs)
             if self.opponent:
                 return self.num_actions * np.random.choice(self.num_actions, p=self.pi[state])
             else:
@@ -431,14 +439,21 @@ def learn(env,
             else:
                 return v_t
 
-        def train_step(self, obs, action, reward, next_obs, done):
+        def train_step(self, t):
+            obs, act, rew, obs_next, done = replay_buffer.sample(batch_size)
+            obs = np.squeeze(obs)
+            act = np.squeeze(act)
+            rew = np.squeeze(rew)
+            obs_next = np.squeeze(obs_next)
+            done = np.squeeze(done)
+
             if self.opponent:
-                reward = -reward
+                rew = -rew
 
             state = self._state_idx(obs)
-            next_state = self._state_idx(next_obs)
-            self.Q[state, action] += self.alpha * \
-                (reward + gamma * (1 - done) * self.V[next_state] - self.Q[state, action])
+            next_state = self._state_idx(obs_next)
+            self.Q[state, act] += self.alpha * \
+                (rew + gamma * (1 - done) * self.V[next_state] - self.Q[state, act])
 
             # Update policy
             q_values = self.Q[state].reshape(
@@ -451,6 +466,7 @@ def learn(env,
 
         @staticmethod
         def _state_idx(state):
+            assert state.ndim == 3
             idx = 0
             for i in range(2 * PLAYERS + 1):
                 idx *= HEIGHT * WIDTH
@@ -527,22 +543,19 @@ def learn(env,
 
     for t in range(num_timesteps):
         # 1. Step the env and store the transition
-        # ret=replay_buffer.store_frame(last_obs)
+        ret=replay_buffer.store_frame(last_obs)
 
         eps = exploration.value(t)
-
         action = 0
         for agent in agents:
-            recent_obs = last_obs.copy()
             if np.random.random() >= eps and t >= learning_starts:
-                # recent_obs=np.expand_dims(
-                    # replay_buffer.encode_recent_observation(), axis=0)
-                action += agent.choose_action(recent_obs=recent_obs)
+                recent_obs = replay_buffer.encode_recent_observation()
+                action += agent.choose_action(obs=recent_obs)
             else:
                 action += agent.random_action()
 
         last_obs, reward, done, info = env.step(action)
-        # replay_buffer.store_effect(ret, action, reward, done)
+        replay_buffer.store_effect(ret, action, reward, done)
         if done:
             last_obs = env.reset()
 
@@ -551,15 +564,14 @@ def learn(env,
         # for us to learn something useful -- until then, the model will not be
         # initialized and random actions should be taken
         if (t >= learning_starts and
-                t % learning_freq == 0):  # and
-                # replay_buffer.can_sample(batch_size)):
+                t % learning_freq == 0 and
+                replay_buffer.can_sample(batch_size)):
 
             for agent in agents:
-                agent.train_step(recent_obs, action, reward, last_obs, done)
+                agent.train_step(t)
 
         # 3
-        best_mean_episode_reward = log_progress(
-            t, eps, best_mean_episode_reward)
+        best_mean_episode_reward = log_progress(t, eps, best_mean_episode_reward)
 
     def env_reset():
         while True:
@@ -575,28 +587,25 @@ def learn(env,
             # Give challenger more timesteps and exploration
             # Since the left side has fixed policy
             for t in range(2 * num_timesteps):
-                # ret=replay_buffer.store_frame(last_obs)
+                ret = replay_buffer.store_frame(last_obs)
                 eps = exploration.value(t // 2)
 
-                # recent_obs=np.expand_dims(
-                # replay_buffer.encode_recent_observation(), axis=0)
-                recent_obs = last_obs.copy()
-                action = agent.choose_action(recent_obs=recent_obs)
+                recent_obs = replay_buffer.encode_recent_observation()
+                action = agent.choose_action(obs=recent_obs)
                 if np.random.random() >= eps and t >= learning_starts:
-                    action += challenger.choose_action(recent_obs=recent_obs)
+                    action += challenger.choose_action(obs=recent_obs)
                 else:
                     action += challenger.random_action()
 
                 last_obs, reward, done, info = env.step(action)
                 if done:
                     last_obs = env.reset()
-                # replay_buffer.store_effect(ret, action, reward, done)
+                replay_buffer.store_effect(ret, action, reward, done)
 
                 if (t >= learning_starts and
-                        t % learning_freq == 0):  # and
-                        # replay_buffer.can_sample(batch_size)):
-                    challenger.train_step(
-                        recent_obs, action, reward, last_obs, done)
+                        t % learning_freq == 0 and
+                        replay_buffer.can_sample(batch_size)):
+                    challenger.train_step(t)
                 best_mean_episode_reward = log_progress(
                     t, eps, best_mean_episode_reward, offset=num_timesteps)
 
@@ -605,7 +614,7 @@ def learn(env,
         EVAL_EPISODES = 5000
         while n_episodes < EVAL_EPISODES:
             action = agent.choose_action(
-                recent_obs=last_obs) + challenger.choose_action(recent_obs=last_obs)
+                obs=last_obs) + challenger.choose_action(obs=last_obs)
             last_obs, reward, done, info = env.step(action)
             if done:
                 last_obs = env.reset()
