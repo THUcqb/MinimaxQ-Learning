@@ -122,10 +122,15 @@ def learn(env,
     mean_rew_ph = tf.placeholder(tf.float32)
     tf.summary.scalar("mean reward 100 episodes", mean_rew_ph)
 
+    HEIGHT = 7
+    WIDTH = 4
+    PLAYERS = 1
+
     class Agent(object):
         def __init__(self, num_actions, opponent):
             self.num_actions = num_actions
             self.opponent = opponent
+            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS + 1)
 
         def random_action(self):
             if self.opponent:
@@ -141,6 +146,15 @@ def learn(env,
 
         def train_step(self, t):
             raise NotImplementedError
+
+        @staticmethod
+        def _state_idx(state):
+            assert state.ndim == 3
+            idx = 0
+            for i in range(2 * PLAYERS + 1):
+                idx *= HEIGHT * WIDTH
+                idx += np.argmax(state[:, :, i])
+            return idx
 
     class RandomAgent(Agent):
         def __init__(self, num_actions, opponent):
@@ -229,6 +243,10 @@ def learn(env,
     class MinimaxQAgent(QAgent):
         def __init__(self, num_actions, opponent, scope):
             super(MinimaxQAgent, self).__init__(num_actions, opponent, scope)
+            self.cached = np.zeros(self.num_states, dtype=bool)
+            self.V = np.random.random(self.num_states)
+            self.pi = np.ones(
+                (self.num_states, self.num_actions)) / self.num_actions
 
         def construct_model(self):
             # Q
@@ -274,21 +292,27 @@ def learn(env,
 
         def choose_action(self, obs):
             obs = np.expand_dims(obs, axis=0)
-            q_values = session.run(self.q, feed_dict={obs_t_ph: obs})
-            _, pi_t = np.squeeze(self._choose_policy(
-                q_values, need_policy=True))
-            act = np.random.choice(a=range(self.num_actions), p=pi_t)
+            _, pi_t = self._choose_policy(obs, need_policy=True)
+            act = np.random.choice(self.num_actions, p=np.squeeze(pi_t))
             if self.opponent:
                 return self.num_actions * act
             else:
                 return act
 
-        def _choose_policy(self, q_values, need_policy=False):
+        def _choose_policy(self, obs, need_policy=False):
+            q_values = session.run(self.target_q, feed_dict={
+                obs_tp1_ph: obs})
             if need_policy:
                 pi_t_batch = np.zeros(
                     (q_values.shape[0], num_actions_per_agent))
             v_t_batch = np.zeros((q_values.shape[0]))
             for i in range(q_values.shape[0]):
+                obs_idx = self._state_idx(obs[i])
+                if self.cached[obs_idx]:
+                    if need_policy:
+                        pi_t_batch[i] = self.pi[obs_idx]
+                    v_t_batch[i] = self.V[obs_idx]
+                    continue
                 c = np.zeros(num_actions_per_agent + 1)
                 c[0] = -1
                 A_ub = np.ones(
@@ -311,6 +335,10 @@ def learn(env,
                         pi_t_batch[i][np.argmax(
                             np.min(q_values[i], axis=0))] = 1
                     v_t_batch[i] = np.max(np.min(q_values[i], axis=0))
+                self.V[obs_idx] = v_t_batch[i]
+                if need_policy:
+                    self.pi[obs_idx] = pi_t_batch[i]
+                self.cached[obs_idx] = True
             if need_policy:
                 return v_t_batch, pi_t_batch
             else:
@@ -321,9 +349,7 @@ def learn(env,
                 replay_buffer.sample(batch_size)
             if self.opponent:
                 rew_t_batch = -rew_t_batch
-            q_values = session.run(self.target_q, feed_dict={
-                                   obs_tp1_ph: obs_tp1_batch})
-            v_t_batch = self._choose_policy(q_values)
+            v_t_batch = self._choose_policy(obs=obs_tp1_batch)
 
             session.run(self.train_fn, {
                 obs_t_ph: obs_t_batch,
@@ -337,10 +363,7 @@ def learn(env,
             self.num_param_updates += 1
             if self.num_param_updates % target_update_freq == 0:
                 session.run(self.update_target_fn)
-
-    HEIGHT = 7
-    WIDTH = 4
-    PLAYERS = 1
+                self.cached = np.zeros(self.num_states, dtype=bool)
 
     class TabularQAgent(Agent):
         def __init__(self, num_actions, opponent, scope):
@@ -376,20 +399,10 @@ def learn(env,
             next_state = self._state_idx(obs_next)
 
             self.Q[state, act] += self.alpha * \
-                                  (rew +
-                                   gamma * (1 - done) * np.max(self.Q[next_state]) -
-                                   self.Q[state, act])
+                (rew +
+                 gamma * (1 - done) * np.max(self.Q[next_state]) -
+                 self.Q[state, act])
             self.alpha *= self.decay
-
-        @staticmethod
-        def _state_idx(state):
-            assert state.ndim == 3
-            idx = 0
-            for i in range(2 * PLAYERS + 1):
-                idx *= HEIGHT * WIDTH
-                idx += np.argmax(state[:, :, i])
-
-            return idx
 
     class TabularMinimaxQAgent(Agent):
         def __init__(self, num_actions, opponent, scope):
@@ -401,7 +414,8 @@ def learn(env,
         def construct_model(self):
             self.Q = np.random.random((self.num_states, self.num_actions ** 2))
             self.V = np.random.random((self.num_states))
-            self.pi = np.ones((self.num_states, self.num_actions)) / self.num_actions
+            self.pi = np.ones(
+                (self.num_states, self.num_actions)) / self.num_actions
 
         def choose_action(self, obs):
             state = self._state_idx(obs)
@@ -453,26 +467,18 @@ def learn(env,
             state = self._state_idx(obs)
             next_state = self._state_idx(obs_next)
             self.Q[state, act] += self.alpha * \
-                (rew + gamma * (1 - done) * self.V[next_state] - self.Q[state, act])
+                (rew + gamma * (1 - done) *
+                 self.V[next_state] - self.Q[state, act])
 
             # Update policy
             q_values = self.Q[state].reshape(
                 (self.num_actions, self.num_actions))
             if self.opponent:
                 q_values = np.transpose(q_values)
-            self.V[state], self.pi[state] = self._choose_policy(q_values, need_policy=True)
+            self.V[state], self.pi[state] = self._choose_policy(
+                q_values, need_policy=True)
 
             self.alpha *= self.decay
-
-        @staticmethod
-        def _state_idx(state):
-            assert state.ndim == 3
-            idx = 0
-            for i in range(2 * PLAYERS + 1):
-                idx *= HEIGHT * WIDTH
-                idx += np.argmax(state[:, :, i])
-
-            return idx
 
     agents = []
     opponents = [False, True]
@@ -543,7 +549,7 @@ def learn(env,
 
     for t in range(num_timesteps):
         # 1. Step the env and store the transition
-        ret=replay_buffer.store_frame(last_obs)
+        ret = replay_buffer.store_frame(last_obs)
 
         eps = exploration.value(t)
         action = 0
@@ -571,7 +577,8 @@ def learn(env,
                 agent.train_step(t)
 
         # 3
-        best_mean_episode_reward = log_progress(t, eps, best_mean_episode_reward)
+        best_mean_episode_reward = log_progress(
+            t, eps, best_mean_episode_reward)
 
     def env_reset():
         while True:

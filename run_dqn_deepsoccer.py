@@ -29,11 +29,14 @@ FLAGS = flags.FLAGS
 if FLAGS.name == '':
     FLAGS.name = FLAGS.agents
 
+
 def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
-    """Fully connected: (H*W*(2N+1)) -> 128 -> 64 -> (5+N-1)^N"""
+    """Fully connected: (H*W*(2N+1)) -> 256 -> 128 -> 64 -> (5+N-1)^N"""
     with tf.variable_scope(scope, reuse=reuse):
         out = layers.flatten(img_in)
         with tf.variable_scope("action_value"):
+            out = layers.fully_connected(
+                out, num_outputs=256, activation_fn=tf.nn.relu)
             out = layers.fully_connected(
                 out, num_outputs=128, activation_fn=tf.nn.relu)
             out = layers.fully_connected(
@@ -67,13 +70,14 @@ def deepsoccer_q_learn(env, session, num_timesteps):
         # which is different from the number of steps in the underlying env
         return get_wrapper_by_name(env, "Monitor").get_total_steps() >= num_timesteps
 
-    # exploration_schedule = PiecewiseSchedule(
-    #     [
-    #         (0, 1.0),
-    #         (num_iterations, 0.01),
-    #     ], outside_value=0.01
-    #)
-    exploration_schedule = ConstantSchedule(0.2)
+    exploration_schedule = PiecewiseSchedule(
+        [
+            (0, 1),
+            (1e6, 0.1),
+            (num_iterations / 2, 0.01),
+        ], outside_value=0.01
+    )
+    # exploration_schedule = ConstantSchedule(0.2)
 
     dqn.learn(
         env,
@@ -113,11 +117,11 @@ def set_global_seeds(i):
 
 def get_session():
     tf.reset_default_graph()
-    # tf_config = tf.ConfigProto(
-    #     inter_op_parallelism_threads=1,
-    #     intra_op_parallelism_threads=1)
-    session = tf.Session()
-    # print("AVAILABLE GPUS: ", get_available_gpus())
+    config = tf.ConfigProto(
+        inter_op_parallelism_threads=1,
+        intra_op_parallelism_threads=1)
+    config.gpu_options.allow_growth = True
+    session = tf.Session(config=config)
     return session
 
 
@@ -135,7 +139,8 @@ def get_env(env_id, seed):
 
 def main():
     # Run training
-    seed = FLAGS.seed  # Use a seed of zero (you may want to randomize the seed!)
+    # Use a seed of zero (you may want to randomize the seed!)
+    seed = FLAGS.seed
     env = get_env('DeepSoccer-v0', seed)
     session = get_session()
     # TODO set proper timesteps

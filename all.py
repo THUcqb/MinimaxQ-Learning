@@ -6,10 +6,11 @@ agents = {
     'TabularQQ': 'TT',
     'TabularMR': 'SR',
     'TabularMM': 'SS',
-    'QR': 'QR',
+    'DeepQR': 'QR',
+    'DeepMR': 'MR',
 }
 
-runs = ['TabularQR', 'TabularQQ', 'TabularMR', 'TabularMM']
+runs = ['DeepQR']
 
 results = {}
 for run in runs:
@@ -18,9 +19,10 @@ for run in runs:
 
     # Train, eval and challenge
     output = subprocess.run(['python', 'run_dqn_deepsoccer.py',
-                    '--agents=' + agents[run], '--eval', '--challenge',
-                    '--batch=1', '--starts=0', '--replay=2', '--freq=1',
-                    '--timesteps=400000', '--name=' + run], stdout=subprocess.PIPE)
+                             '--agents=' +
+                             agents[run], '--eval', '--challenge',
+                             '--batch=32', '--starts=50000', '--replay=1000000', '--freq=4',
+                             '--timesteps=10000000', '--name=' + run], stdout=subprocess.PIPE)
     raw = output.stdout.decode('utf-8')
     result = list(filter(lambda line: 'vs' in line, raw.split('\n')))
     results[run] = result
