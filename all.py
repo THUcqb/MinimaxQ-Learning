@@ -21,8 +21,8 @@ for run in runs:
     output = subprocess.run(['python', 'run_dqn_deepsoccer.py',
                              '--agents=' +
                              agents[run], '--eval', '--challenge',
-                             '--batch=32', '--starts=50000', '--replay=1000000', '--freq=4',
-                             '--timesteps=10000000', '--name=' + run], stdout=subprocess.PIPE)
+                             '--batch=32', '--starts=50000', '--replay=100000', '--freq=4',
+                             '--timesteps=5000000', '--name=' + run], stdout=subprocess.PIPE)
     raw = output.stdout.decode('utf-8')
     result = list(filter(lambda line: 'vs' in line, raw.split('\n')))
     results[run] = result

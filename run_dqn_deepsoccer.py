@@ -50,7 +50,7 @@ def deepsoccer_q_learn(env, session, num_timesteps):
     # This is just a rough estimate
     num_iterations = num_timesteps
 
-    lr_multiplier = 0.1
+    lr_multiplier = 1
     lr_schedule = PiecewiseSchedule([
         (0, 1e-4 * lr_multiplier),
         (num_iterations / 10,
@@ -73,7 +73,7 @@ def deepsoccer_q_learn(env, session, num_timesteps):
     exploration_schedule = PiecewiseSchedule(
         [
             (0, 1),
-            (1e6, 0.1),
+            (0.5e6, 0.1),
             (num_iterations / 2, 0.01),
         ], outside_value=0.01
     )

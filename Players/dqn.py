@@ -383,7 +383,7 @@ def learn(env,
                 return np.argmax(self.Q[state])
 
         def train_step(self, t):
-            obs, act, rew, obs_next, done = replay_buffer.sample(batch_size)
+            obs, act, rew, obs_next, done = replay_buffer.sample(1)
             obs = np.squeeze(obs)
             act = np.squeeze(act)
             rew = np.squeeze(rew)
@@ -454,7 +454,7 @@ def learn(env,
                 return v_t
 
         def train_step(self, t):
-            obs, act, rew, obs_next, done = replay_buffer.sample(batch_size)
+            obs, act, rew, obs_next, done = replay_buffer.sample(1)
             obs = np.squeeze(obs)
             act = np.squeeze(act)
             rew = np.squeeze(rew)
