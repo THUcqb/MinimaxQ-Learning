@@ -245,8 +245,6 @@ def learn(env,
             super(MinimaxQAgent, self).__init__(num_actions, opponent, scope)
             self.cached = np.zeros(self.num_states, dtype=bool)
             self.V = np.random.random(self.num_states)
-            self.pi = np.ones(
-                (self.num_states, self.num_actions)) / self.num_actions
 
         def construct_model(self):
             # Q
@@ -300,6 +298,9 @@ def learn(env,
                 return act
 
         def _choose_policy(self, obs, need_policy=False):
+            # Need_policy is equal to is_not_training,
+            # since we only need V from target Q during training.
+            # And there is no need to cache pi because it always comes from Q.
             q_values = session.run(self.target_q, feed_dict={
                 obs_tp1_ph: obs})
             if need_policy:
@@ -308,9 +309,7 @@ def learn(env,
             v_t_batch = np.zeros((q_values.shape[0]))
             for i in range(q_values.shape[0]):
                 obs_idx = self._state_idx(obs[i])
-                if self.cached[obs_idx]:
-                    if need_policy:
-                        pi_t_batch[i] = self.pi[obs_idx]
+                if not need_policy and self.cached[obs_idx]:
                     v_t_batch[i] = self.V[obs_idx]
                     continue
                 c = np.zeros(num_actions_per_agent + 1)
@@ -335,10 +334,9 @@ def learn(env,
                         pi_t_batch[i][np.argmax(
                             np.min(q_values[i], axis=0))] = 1
                     v_t_batch[i] = np.max(np.min(q_values[i], axis=0))
-                self.V[obs_idx] = v_t_batch[i]
-                if need_policy:
-                    self.pi[obs_idx] = pi_t_batch[i]
-                self.cached[obs_idx] = True
+                if not need_policy:
+                    self.cached[obs_idx] = True
+                    self.V[obs_idx] = v_t_batch[i]
             if need_policy:
                 return v_t_batch, pi_t_batch
             else:
@@ -593,9 +591,9 @@ def learn(env,
             best_mean_episode_reward = -float('inf')
             # Give challenger more timesteps and exploration
             # Since the left side has fixed policy
-            for t in range(2 * num_timesteps):
+            for t in range(num_timesteps):
                 ret = replay_buffer.store_frame(last_obs)
-                eps = exploration.value(t // 2)
+                eps = exploration.value(t)
 
                 recent_obs = replay_buffer.encode_recent_observation()
                 action = agent.choose_action(obs=recent_obs)

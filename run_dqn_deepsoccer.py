@@ -131,7 +131,7 @@ def get_env(env_id, seed):
     set_global_seeds(seed)
     env.seed(seed)
 
-    expt_dir = '/tmp/deepsoccer' + FLAGS.name + '/'
+    expt_dir = 'videos/' + FLAGS.name + '/'
     env = wrappers.Monitor(env, osp.join(expt_dir, "gym"), force=True)
 
     return env

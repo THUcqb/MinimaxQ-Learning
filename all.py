@@ -10,7 +10,7 @@ agents = {
     'DeepMR': 'MR',
 }
 
-runs = ['DeepQR']
+runs = ['DeepMR']
 
 results = {}
 for run in runs:

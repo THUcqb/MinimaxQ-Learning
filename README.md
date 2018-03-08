@@ -28,4 +28,4 @@ python all.py
 ```
 
 ### Results
-- Videos in `/tmp/deepsoccerXX/gym`.
+- Videos in `/videos/XXX/gym`.
