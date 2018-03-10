@@ -1,9 +1,11 @@
 import logging
+import math
 import gym
 from gym import spaces
 from gym.utils import seeding
 import numpy as np
 import matplotlib
+from matplotlib import pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ class DeepSoccer(gym.Env):
         self.num_players = num_players
         self.height = height
         self.width = width
-        self.MAX_STEPS_IN_ONE_EPISODE = 2 * height * width
+        self.MAX_STEPS_IN_ONE_EPISODE = height * width
         # 1 stand, 4 direction, (N-1)teammates
         self.num_actions_for_one_player = 1 + 4 + num_players - 1
         self.num_actions_for_one_team = self.num_actions_for_one_player ** num_players
@@ -42,10 +44,10 @@ class DeepSoccer(gym.Env):
         return [seed]
 
     def _reset(self):
-        """Randomly put the players on the grid and give the ball to someone.
+        '''Randomly put the players on the grid and give the ball to someone.
 
         State of shape H*W*(2 * number of players + 1(ball))
-        """
+        '''
         self.state = np.zeros(
             (self.height, self.width, 2 * self.num_players + 1), dtype=bool)
         # 1 Put players
@@ -70,38 +72,28 @@ class DeepSoccer(gym.Env):
 
     def _step(self, action):
         # 1 Find the ball. Ball represented in state[:, :, -1]
-        # ball_x, ball_y = self._onehot_to_index(self.state[:, :, -1])
+        ball_x, ball_y = self._onehot_to_index(self.state[:, :, -1])
 
         # 2 Determine who the ball will go with
         #   Get all players standing at the ball's location
-        # if self.player_with_ball < self.num_players:
-        #     opponents_at_ball = [player for player in range(self.num_players, 2 * self.num_players) if self.state[ball_x, ball_y, player]]
-        # else:
-        #     opponents_at_ball = [player for player in range(self.num_players) if self.state[ball_x, ball_y, player]]
-        # #   The ball will go with this guy
-        # self.player_with_ball = self.np_random.choice(
-        #     opponents_at_ball) if opponents_at_ball != [] else self.player_with_ball
+        if self.player_with_ball < self.num_players:
+            opponents_at_ball = [player for player in range(self.num_players, 2 * self.num_players) if self.state[ball_x, ball_y, player]]
+        else:
+            opponents_at_ball = [player for player in range(self.num_players) if self.state[ball_x, ball_y, player]]
+        #   The ball will go with this guy
+        self.player_with_ball = self.np_random.choice(
+            opponents_at_ball) if opponents_at_ball != [] else self.player_with_ball
 
         # 3 Step the players, for team 0 and team 1
-        #   During this process, the ball's owner may change (passing the ball)
-        #   Determine which team will go first to avoid overlapping
-        self._actions = []
-        t_action = action
-        for i in range(2 * self.num_players):
-            self._actions.append(t_action % self.num_actions_for_one_player)
-            t_action //= self.num_actions_for_one_player
-        if np.random.randint(2) == 0:
-            self.player_with_ball = self._step_team(0, self.player_with_ball)
-            self.player_with_ball = self._step_team(1, self.player_with_ball)
-        else:
-            self.player_with_ball = self._step_team(1, self.player_with_ball)
-            self.player_with_ball = self._step_team(0, self.player_with_ball)
+        #   During this process, the ball's owner may change
+        self.player_with_ball = self._step_team(0, action % self.num_actions_for_one_team, self.player_with_ball)
+        self.player_with_ball = self._step_team(1, action // self.num_actions_for_one_team, self.player_with_ball)
 
         # 4 Step the ball
-        if self.player_with_ball is not None:
+        if self.player_with_ball != None:
             self.state[:, :, -1] = self.state[:, :, self.player_with_ball]
 
-        # 5 Judge, the goal have a height of 2 on the leftmost and rightmost side.
+        # 5 Judge, the goal have a height of 4 on the leftmost and rightmost side.
         reward = 0.0
         done = False
         new_ball_x, new_ball_y = self._onehot_to_index(self.state[:, :, -1])
@@ -120,60 +112,48 @@ class DeepSoccer(gym.Env):
 
         return self.state, reward, done, {}
 
-    def _step_team(self, team, player_with_ball):
+    def _step_team(self, team, action, player_with_ball):
         new_player_with_ball = None
         for player in range(team * self.num_players, (team + 1) * self.num_players):
-            action_t = self._actions[player]
+            action_t = action % self.num_actions_for_one_player
+            action //= self.num_actions_for_one_player
             if action_t < 5:
                 # Stand / move
                 x, y = self._onehot_to_index(self.state[:, :, player])
-                new_x, new_y = x + self.move_vec[action_t][0], y + self.move_vec[action_t][1]
-                if not self._in_board(new_x, new_y):
+                if self._in_board(x + self.move_vec[action_t][0], y + self.move_vec[action_t][1]):
+                    self.state[x, y, player] = 0
+                    x += self.move_vec[action_t][0]
+                    y += self.move_vec[action_t][1]
+                    self.state[x, y, player] = 1
+            else:
+                # Pass the ball only if you have the ball
+                if player_with_ball != player:
                     continue
 
-                opponents_there = \
-                    [player for player in range((1 - team) * self.num_players,
-                                                (2 - team) * self.num_players)\
-                                if self.state[new_x, new_y, player]]
-                if opponents_there:
-                    # Can't move
-                    opponents_there = [opponent for opponent in opponents_there if self._actions[opponent] == 0]
-                    if opponents_there:
-                        # lose the ball
-                        new_player_with_ball = self.np_random.choice(opponents_there)
-                else:
-                    self.state[x, y, player] = 0
-                    self.state[new_x, new_y, player] = 1
-        #     TODO enable passing the ball
-        #     else:
-        #         # Pass the ball only if you have the ball
-        #         if player_with_ball != player:
-        #             continue
+                # To whom you want to pass
+                target = action_t - 5 + team * self.num_players
 
-        #         # To whom you want to pass
-        #         target = action_t - 5 + team * self.num_players
+                # action doesn't include passing to oneself
+                # so fix the misalignment
+                if target >= player:
+                    target += 1
+                # now target is from 0~N-1 for team0, N~2N-1 for team1,
+                # && target != player
 
-        #         # action doesn't include passing to oneself
-        #         # so fix the misalignment
-        #         if target >= player:
-        #             target += 1
-        #         # now target is from 0~N-1 for team0, N~2N-1 for team1,
-        #         # && target != player
-
-        #         if self._trajectory_clear(player, target):
-        #             new_player_with_ball = target
+                if self._trajectory_clear(player, target):
+                    new_player_with_ball = target
         if new_player_with_ball is not None:
             return new_player_with_ball
         else:
             return player_with_ball
 
     def _render(self, mode='human', close=False):
-        """Return rgb array (height, width, 3)
+        '''Return rgb array (height, width, 3)
 
         Red for team A
         Green for the ball
         Blue for team B
-        """
+        '''
         rendered_rgb = np.zeros([self.height, self.width, 3])
         rendered_rgb[:, :, 0] = np.sum(
             self.state[:, :, :self.num_players], axis=2)
@@ -198,15 +178,15 @@ class DeepSoccer(gym.Env):
                 and not (x == self.height-1 and y == 0) and not (x == self.height-1 and y == self.width-1)
     @staticmethod
     def _onehot_to_index(arr):
-        """Return the (x, y) indices of the one-hot 2d numpy array."""
+        '''Return the (x, y) indices of the one-hot 2d numpy array.'''
         return np.unravel_index(np.argmax(arr), arr.shape)
 
     MAX_PASSING_DISTANCE = 5
 
     def _trajectory_clear(self, holder, target):
-        """To see if people or ball on the line between the two player.
+        '''To see if people or ball on the line between the two player.
 
-        Or the two players are too far away."""
+        Or the two players are too far away.'''
         x0, y0 = self._onehot_to_index(self.state[:, :, holder])
         x1, y1 = self._onehot_to_index(self.state[:, :, target])
         if (x0 - x1) ** 2 + (y0 - y1) ** 2 > DeepSoccer.MAX_PASSING_DISTANCE ** 2:
@@ -222,7 +202,7 @@ class DeepSoccer(gym.Env):
 
     @staticmethod
     def _trajectory(x0, y0, x1, y1):
-        """Wrapper for compute trajectory between two points."""
+        '''Wrapper for compute trajectory between two points.'''
         rearranged_xy = False
         if abs(y0 - y1) > abs(x0 - x1):
             x0, y0, x1, y1 = y0, x0, y1, x1
@@ -236,12 +216,12 @@ class DeepSoccer(gym.Env):
 
     @staticmethod
     def _trajectory_Bresenham(x0, y0, x1, y1):
-        """Return the trajectory to pass the ball between two people.
+        '''Return the trajectory to pass the ball between two people.
 
         Refer to [Bresenham's line algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm)
 
         Params should satisfy: abs(x1-x0) >= abs(y1-y0), x1 > x0
-        """
+        '''
         trajectory = []
         dx, dy = x1 - x0, y1 - y0
         yi = 1

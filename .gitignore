@@ -1,4 +1,8 @@
+.idea/
+
+results/
 logs/
+videos/
 
 # rendered images
 *.png
