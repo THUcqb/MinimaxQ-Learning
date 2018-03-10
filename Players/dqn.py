@@ -112,8 +112,8 @@ def learn(env,
     learning_rate = tf.placeholder(tf.float32, (), name="learning_rate")
 
     # casting to float on GPU ensures lower data transfer times.
-    obs_t_float = tf.cast(obs_t_ph,   tf.float32) / 255.0
-    obs_tp1_float = tf.cast(obs_tp1_ph, tf.float32) / 255.0
+    obs_t_float = tf.cast(obs_t_ph,   tf.float32)
+    obs_tp1_float = tf.cast(obs_tp1_ph, tf.float32)
 
     # construct the replay buffer
     replay_buffer = ReplayBuffer(replay_buffer_size, frame_history_len)
