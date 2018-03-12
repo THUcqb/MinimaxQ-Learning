@@ -4,7 +4,8 @@ import tensorflow as tf
 from tensorflow.python.platform import flags
 from collections import namedtuple
 from .dqn_utils import *
-from scipy.optimize import linprog
+from cvxpy import *
+# from scipy.optimize import linprog
 
 FLAGS = flags.FLAGS
 OptimizerSpec = namedtuple(
@@ -122,15 +123,13 @@ def learn(env,
     mean_rew_ph = tf.placeholder(tf.float32)
     tf.summary.scalar("mean reward 100 episodes", mean_rew_ph)
 
-    HEIGHT = 7
-    WIDTH = 4
     PLAYERS = 1
 
     class Agent(object):
         def __init__(self, num_actions, opponent):
             self.num_actions = num_actions
             self.opponent = opponent
-            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS + 1)
+            self.num_states = (FLAGS.height * FLAGS.width) ** (2 * PLAYERS + 1)
 
         def random_action(self):
             if self.opponent:
@@ -152,7 +151,7 @@ def learn(env,
             assert state.ndim == 3
             idx = 0
             for i in range(2 * PLAYERS + 1):
-                idx *= HEIGHT * WIDTH
+                idx *= FLAGS.height * FLAGS.width
                 idx += np.argmax(state[:, :, i])
             return idx
 
@@ -243,8 +242,7 @@ def learn(env,
     class MinimaxQAgent(QAgent):
         def __init__(self, num_actions, opponent, scope):
             super(MinimaxQAgent, self).__init__(num_actions, opponent, scope)
-            self.cached = np.zeros(self.num_states, dtype=bool)
-            self.V = np.random.random(self.num_states)
+            self.training = True
 
         def construct_model(self):
             # Q
@@ -287,67 +285,56 @@ def learn(env,
                                        sorted(target_q_func_vars, key=lambda v: v.name)):
                 update_target_fn.append(var_target.assign(var))
             self.update_target_fn = tf.group(*update_target_fn)
+            self.v_cache = {}
+            self.pi_cache = {}
 
         def choose_action(self, obs):
             obs = np.expand_dims(obs, axis=0)
-            _, pi_t = self._choose_policy(obs, need_policy=True)
-            act = np.random.choice(self.num_actions, p=np.squeeze(pi_t))
+            _, pi_t = self._choose_policy(obs, use_q=True, use_cache=not self.training)
+            try:
+                act = np.random.choice(self.num_actions, p=np.squeeze(pi_t))
+            except Exception:
+                act = np.random.choice(self.num_actions)
             if self.opponent:
                 return self.num_actions * act
             else:
                 return act
 
-        def _choose_policy(self, obs, need_policy=False):
-            # Need_policy is equal to is_not_training,
-            # since we only need V from target Q during training.
-            # And there is no need to cache pi because it always comes from Q.
-            q_values = session.run(self.target_q, feed_dict={
-                obs_tp1_ph: obs})
-            if need_policy:
-                pi_t_batch = np.zeros(
-                    (q_values.shape[0], num_actions_per_agent))
-            v_t_batch = np.zeros((q_values.shape[0]))
-            for i in range(q_values.shape[0]):
-                obs_idx = self._state_idx(obs[i])
-                if not need_policy and self.cached[obs_idx]:
-                    v_t_batch[i] = self.V[obs_idx]
-                    continue
-                c = np.zeros(num_actions_per_agent + 1)
-                c[0] = -1
-                A_ub = np.ones(
-                    (num_actions_per_agent, num_actions_per_agent + 1))
-                A_ub[:, 1:] = -q_values[i]
-                b_ub = np.zeros(num_actions_per_agent)
-                A_eq = np.ones((1, num_actions_per_agent + 1))
-                A_eq[0, 0] = 0
-                b_eq = [1]
-                bounds = ((None, None), ) + ((0, 1), ) * num_actions_per_agent
-                res = linprog(c, A_ub, b_ub, A_eq, b_eq, bounds)
-                if res.success:
-                    if need_policy:
-                        pi_t_batch[i] = res.x[1:]
-                    v_t_batch[i] = res.x[0]
-                else:
-                    # use max min
-                    # TODO inspect how many lp failed
-                    if need_policy:
-                        pi_t_batch[i][np.argmax(
-                            np.min(q_values[i], axis=0))] = 1
-                    v_t_batch[i] = np.max(np.min(q_values[i], axis=0))
-                if not need_policy:
-                    self.cached[obs_idx] = True
-                    self.V[obs_idx] = v_t_batch[i]
-            if need_policy:
-                return v_t_batch, pi_t_batch
+        def _choose_policy(self, obs, use_q=False, use_cache=True):
+            if use_q:
+                q_values = session.run(self.q, feed_dict={obs_t_ph: obs})
             else:
-                return v_t_batch
+                q_values = session.run(self.target_q, feed_dict={obs_tp1_ph: obs})
+            pi_t_batch = np.zeros((q_values.shape[0], self.num_actions))
+            v_t_batch = np.zeros((q_values.shape[0]))
+
+            for i in range(q_values.shape[0]):
+                h = hash(obs[i].tostring())
+                if use_cache and h in self.v_cache:
+                    v_t_batch[i] = self.v_cache[h]
+                    pi_t_batch[i] = self.pi_cache[h]
+                    continue
+
+                x = Variable(self.num_actions)
+                v = Variable()
+                constraints = [0 <= x, x <= 1, sum(x) == 1, q_values[i] * x >= v]
+                obj = Maximize(v)
+                prob = Problem(obj, constraints)
+                prob.solve()
+                v_t_batch[i] = v.value
+                pi_t_batch[i] = x.value.flatten()
+
+                if use_cache:
+                    self.v_cache[h] = v_t_batch[i]
+                    self.pi_cache[h] = pi_t_batch[i]
+            return v_t_batch, pi_t_batch
 
         def train_step(self, t):
             obs_t_batch, act_t_batch, rew_t_batch, obs_tp1_batch, done_mask = \
                 replay_buffer.sample(batch_size)
             if self.opponent:
                 rew_t_batch = -rew_t_batch
-            v_t_batch = self._choose_policy(obs=obs_tp1_batch)
+            v_t_batch, _ = self._choose_policy(obs=obs_tp1_batch)
 
             session.run(self.train_fn, {
                 obs_t_ph: obs_t_batch,
@@ -361,12 +348,18 @@ def learn(env,
             self.num_param_updates += 1
             if self.num_param_updates % target_update_freq == 0:
                 session.run(self.update_target_fn)
-                self.cached = np.zeros(self.num_states, dtype=bool)
+                self.v_cache = {}
+                self.pi_cache = {}
+
+        def complete_training(self):
+            self.training = False
+            self.v_cache = {}
+            self.pi_cache = {}
 
     class TabularQAgent(Agent):
         def __init__(self, num_actions, opponent, scope):
             super(TabularQAgent, self).__init__(num_actions, opponent)
-            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS + 1)
+            self.num_states = (FLAGS.height * FLAGS.width) ** (2 * PLAYERS + 1)
             self.alpha = 1
             self.decay = 10 ** (-2 / num_timesteps)
 
@@ -405,7 +398,7 @@ def learn(env,
     class TabularMinimaxQAgent(Agent):
         def __init__(self, num_actions, opponent, scope):
             super(TabularMinimaxQAgent, self).__init__(num_actions, opponent)
-            self.num_states = (HEIGHT * WIDTH) ** (2 * PLAYERS + 1)
+            self.num_states = (FLAGS.height * FLAGS.width) ** (2 * PLAYERS + 1)
             self.alpha = 1
             self.decay = 10 ** (-2 / num_timesteps)
 
@@ -504,7 +497,7 @@ def learn(env,
     if FLAGS.eval:
         random_challenger = RandomAgent(num_actions_per_agent, opponent=True)
     if FLAGS.challenge:
-        q_challenger = TabularQAgent(
+        q_challenger = QAgent(
             num_actions_per_agent, opponent=True, scope="chal")
         q_challenger.construct_model()
 
@@ -578,6 +571,8 @@ def learn(env,
         best_mean_episode_reward = log_progress(
             t, eps, best_mean_episode_reward)
 
+    agents[0].complete_training()
+
     def env_reset():
         while True:
             action = env.action_space.sample()
@@ -616,7 +611,7 @@ def learn(env,
 
         last_obs = env_reset()
         n_episodes = 0
-        EVAL_EPISODES = 5000
+        EVAL_EPISODES = 1000
         while n_episodes < EVAL_EPISODES:
             action = agent.choose_action(
                 obs=last_obs) + challenger.choose_action(obs=last_obs)
@@ -626,9 +621,9 @@ def learn(env,
                 n_episodes += 1
         episode_rewards = get_wrapper_by_name(
             env, "Monitor").get_episode_rewards()
-        won = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) > 0)
-        lost = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) < 0)
-        draw = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) == 0)
+        won = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) > 1)
+        lost = np.sum(np.array(episode_rewards[-EVAL_EPISODES:]) < -1)
+        draw = EVAL_EPISODES - won - lost
         print(" vs %s: %d won, %d lost, %d draw. Win rate %g" %
               (name, won, lost, draw, won / EVAL_EPISODES))
 

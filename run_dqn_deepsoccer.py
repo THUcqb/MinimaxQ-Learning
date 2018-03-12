@@ -10,7 +10,7 @@ register(
     id='DeepSoccer-v0',
     entry_point='Games.deep_soccer:DeepSoccer',
 )
-flags.DEFINE_string('agents', 'QR',
+flags.DEFINE_string('agents', 'MR',
                     'RR, QR, QQ, MR, MM, MQ, TR, SR, ...')
 flags.DEFINE_bool('eval', True,
                   'Use random policy to evaluate the first agent')
@@ -20,9 +20,12 @@ flags.DEFINE_integer('batch', 32, 'Batch size')
 flags.DEFINE_integer('starts', 50000, 'Learning starts at this step.')
 flags.DEFINE_integer('replay', 1000000, 'replay_buffer_size')
 flags.DEFINE_integer('freq', 4, 'learning freq')
-flags.DEFINE_string('name', '', 'name of the log dir')
+flags.DEFINE_string('name', 'xxx', 'name of the log dir')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_integer('timesteps', 1e6, 'Training timesteps, not episodes.')
+flags.DEFINE_integer('height', 4, 'Height of the board.')
+flags.DEFINE_integer('width', 7, 'Width of the board.')
+flags.DEFINE_integer('players', 1, 'Number of players each team.')
 
 FLAGS = flags.FLAGS
 
@@ -33,14 +36,16 @@ if FLAGS.name == '':
 def deepsoccer_q_model(img_in, num_actions, scope, reuse=False):
     """Fully connected: (H*W*(2N+1)) -> 256 -> 128 -> 64 -> (5+N-1)^N"""
     with tf.variable_scope(scope, reuse=reuse):
-        out = layers.flatten(img_in)
+        out = img_in
+        with tf.variable_scope("convnet"):
+            out = layers.convolution2d(out, num_outputs=32, kernel_size=8, stride=4, activation_fn=tf.nn.relu)
+            out = layers.convolution2d(out, num_outputs=64, kernel_size=4, stride=2, activation_fn=tf.nn.relu)
+            out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.relu)
+        out = layers.flatten(out)
+        out = layers.flatten(out)
         with tf.variable_scope("action_value"):
             out = layers.fully_connected(
                 out, num_outputs=256, activation_fn=tf.nn.relu)
-            out = layers.fully_connected(
-                out, num_outputs=128, activation_fn=tf.nn.relu)
-            out = layers.fully_connected(
-                out, num_outputs=64, activation_fn=tf.nn.relu)
             out = layers.fully_connected(
                 out, num_outputs=num_actions, activation_fn=None)
         return out
@@ -73,8 +78,8 @@ def deepsoccer_q_learn(env, session, num_timesteps):
     exploration_schedule = PiecewiseSchedule(
         [
             (0, 1),
-            (0.5e6, 0.1),
-            (num_iterations / 2, 0.01),
+            (num_iterations / 2, 0.1),
+            (num_timesteps, 0.01),
         ], outside_value=0.01
     )
     # exploration_schedule = ConstantSchedule(0.2)

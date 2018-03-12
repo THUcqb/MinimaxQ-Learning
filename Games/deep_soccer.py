@@ -4,6 +4,8 @@ from gym import spaces
 from gym.utils import seeding
 import numpy as np
 import matplotlib
+from tensorflow.python.platform import flags
+FLAGS = flags.FLAGS
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 class DeepSoccer(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
-        'video.frames_per_second': 10
+        'video.frames_per_second': 8
     }
 
     move_vec = {
@@ -22,18 +24,18 @@ class DeepSoccer(gym.Env):
         4: [1,  0],
     }
 
-    def __init__(self, num_players=1, height=4, width=7):
-        self.num_players = num_players
-        self.height = height
-        self.width = width
-        self.MAX_STEPS_IN_ONE_EPISODE = 2 * height * width
+    def __init__(self):
+        self.num_players = FLAGS.players
+        self.height = FLAGS.height
+        self.width = FLAGS.width
+        self.MAX_STEPS_IN_ONE_EPISODE = 2 * (self.height + self.width)
         # 1 stand, 4 direction, (N-1)teammates
-        self.num_actions_for_one_player = 1 + 4 + num_players - 1
-        self.num_actions_for_one_team = self.num_actions_for_one_player ** num_players
+        self.num_actions_for_one_player = 1 + 4 + self.num_players - 1
+        self.num_actions_for_one_team = self.num_actions_for_one_player ** self.num_players
         self.action_space = spaces.Discrete(self.num_actions_for_one_team ** 2)
         self.observation_space = spaces.Box(
-            np.zeros((height, width, 2 * num_players + 1), dtype=bool),
-            np.ones((height, width, 2 * num_players + 1), dtype=bool),
+            np.zeros((self.height, self.width, 2 * self.num_players + 1), dtype=bool),
+            np.ones((self.height, self.width, 2 * self.num_players + 1), dtype=bool),
         )
         self._seed()
 
@@ -98,17 +100,19 @@ class DeepSoccer(gym.Env):
             self.player_with_ball = self._step_team(0, self.player_with_ball)
 
         # 4 Step the ball
+        _, old_ball_y = self._onehot_to_index(self.state[:, :, -1])
         if self.player_with_ball is not None:
             self.state[:, :, -1] = self.state[:, :, self.player_with_ball]
 
         # 5 Judge, the goal have a height of 2 on the leftmost and rightmost side.
-        reward = 0.0
-        done = False
+        # Give it shaped reward to push the ball to the right
         new_ball_x, new_ball_y = self._onehot_to_index(self.state[:, :, -1])
-        if new_ball_y == 0 and abs(new_ball_x - (self.height - 1) / 2) < 1:
+        done = False
+        reward = (new_ball_y - old_ball_y) / self.width * 0.1
+        if new_ball_y == 0 and abs(new_ball_x - (self.height - 1) / 2) < 2:
             reward = -1.0
             done = True
-        if new_ball_y == self.width - 1 and abs(new_ball_x - (self.height - 1) / 2) < 1:
+        if new_ball_y == self.width - 1 and abs(new_ball_x - (self.height - 1) / 2) < 2:
             reward = 1.0
             done = True
 
@@ -144,24 +148,23 @@ class DeepSoccer(gym.Env):
                 else:
                     self.state[x, y, player] = 0
                     self.state[new_x, new_y, player] = 1
-        #     TODO enable passing the ball
-        #     else:
-        #         # Pass the ball only if you have the ball
-        #         if player_with_ball != player:
-        #             continue
+            else:
+                # Pass the ball only if you have the ball
+                if player_with_ball != player:
+                    continue
 
-        #         # To whom you want to pass
-        #         target = action_t - 5 + team * self.num_players
+                # To whom you want to pass
+                target = action_t - 5 + team * self.num_players
 
-        #         # action doesn't include passing to oneself
-        #         # so fix the misalignment
-        #         if target >= player:
-        #             target += 1
-        #         # now target is from 0~N-1 for team0, N~2N-1 for team1,
-        #         # && target != player
+                # action doesn't include passing to oneself
+                # so fix the misalignment
+                if target >= player:
+                    target += 1
+                # now target is from 0~N-1 for team0, N~2N-1 for team1,
+                # && target != player
 
-        #         if self._trajectory_clear(player, target):
-        #             new_player_with_ball = target
+                if self._trajectory_clear(player, target):
+                    new_player_with_ball = target
         if new_player_with_ball is not None:
             return new_player_with_ball
         else:
@@ -177,25 +180,26 @@ class DeepSoccer(gym.Env):
         rendered_rgb = np.zeros([self.height, self.width, 3])
         rendered_rgb[:, :, 0] = np.sum(
             self.state[:, :, :self.num_players], axis=2)
-        rendered_rgb[:, :, 1] = self.state[:, :, -1]
         rendered_rgb[:, :, 2] = np.sum(
             self.state[:, :, self.num_players:-1], axis=2)
         # show goal
-        rendered_rgb[int(np.floor((self.height - 1) / 2)):1+int(np.ceil((self.height - 1) / 2)), 0, :] += 0.2
-        rendered_rgb[int(np.floor((self.height - 1) / 2)):1+int(np.ceil((self.height - 1) / 2)), -1, :] += 0.2
+        rendered_rgb[int(np.floor((self.height - 1) / 2))-1:2+int(np.ceil((self.height - 1) / 2)), 0, :] += 0.2
+        rendered_rgb[int(np.floor((self.height - 1) / 2))-1:2+int(np.ceil((self.height - 1) / 2)), -1, :] += 0.2
         rendered_rgb /= np.max(rendered_rgb)
-        # float to uint8
-        rendered_rgb = (rendered_rgb * 255).round()
         # Amplifying the image
+        amp = 32
         rendered_rgb = np.kron(rendered_rgb, np.ones(
-            (24, 24, 1))).astype(np.uint8)
+            (amp, amp, 1)))
+        ball_x, ball_y = self._onehot_to_index(self.state[:, :, -1])
+        rendered_rgb[ball_x * amp + 3 * amp // 8: ball_x * amp + 5 * amp // 8, ball_y * amp + 3 * amp // 8: ball_y * amp + 5 * amp // 8:] = 0
+        rendered_rgb[ball_x * amp + 3 * amp // 8: ball_x * amp + 5 * amp // 8, ball_y * amp + 3 * amp // 8: ball_y * amp + 5 * amp // 8:, 1] = 1
+        # float to uint8
+        rendered_rgb = (rendered_rgb * 255).astype(np.uint8)
         return rendered_rgb
 
     def _in_board(self, x, y):
-        # Original setting hard coded
-        return (0 <= x < self.height and 0 <= y < self.width)\
-                and not (x == 0 and y == 0) and not (x == 0 and y == self.width-1)\
-                and not (x == self.height-1 and y == 0) and not (x == self.height-1 and y == self.width-1)
+        return 0 <= x < self.height and 0 <= y < self.width
+
     @staticmethod
     def _onehot_to_index(arr):
         """Return the (x, y) indices of the one-hot 2d numpy array."""
